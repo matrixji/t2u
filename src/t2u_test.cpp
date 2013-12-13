@@ -1,4 +1,7 @@
+#include <stdio.h>
 #include "t2u.h"
+#include <sys/types.h>
+#include <sys/socket.h>
 
 /**************************************************************************
  *  this is a small demo
@@ -7,14 +10,16 @@
 
 int main(int argc, char *argv[])
 {
-    forward_context *c[10];
+    forward_context *context;
+    forward_rule rule = { forward_client_mode, NULL, "http", 0, 1088 };
 
-    printf ("init forward %p\n", c[0]=init_forward(1));
-    printf ("init forward %p\n", c[1]=init_forward(1));
-    printf ("init forward %p\n", c[2]=init_forward(2));
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    context=init_forward(sock);
 
-    free_forward(c[0]);
-    free_forward(c[1]);
-    free_forward(c[2]);
+    rule.context = context;
+    add_forward_rule(&rule);
+    
+    free_forward(context);
+    
     return 0;
 }

@@ -4,166 +4,105 @@
 #include <string.h>
 #include <pthread.h>
 
+#include <event.h>
+
+#include <string>
+#include <map>
+
 #define FORWARD_MAX (64)
 
-typedef struct internal_list_
+
+// rule internal
+class forward_rule_internal
 {
-    struct internal_list_ *prev;
-    struct internal_list_ *next;
-    void *data;
-} internal_list;
+public:
+    struct forward_rule_ *rule;
+};
 
-typedef struct forward_context_internal_
+// context internal
+class forward_context_internal
 {
-    forward_context *context;
-    internal_list *rules;
-    t2u_socket udpsocket;
-} forward_context_internal;
-
-
-static internal_list *g_forward_context_list = NULL;
-static unsigned int g_forward_context_count = 0;
-
-
-pthread_mutex_t g_forward_oper_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-
-#define MAX_EVENTS (1024)
-static int g_event_handle = 0;
-static int g_events[MAX_EVENTS];
-
-static pthread_t g_event_thread;
-static int g_event_loop_run = 0;
-
-static void *event_loop()
-{
-    while (g_event_loop_run)
+public:
+    forward_context_internal(t2u_socket sock)
     {
-        int fds = epoll_wait(g_event_handle, g_events, MAX_EVENTS, 1000);
-    }
-    return NULL;
-}
+        sock_ = sock;
+        context = new forward_context;
+        context->internal = this;
+        pthread_mutex_init(&mutex, NULL);
+    };
 
+    ~forward_context_internal()
+    {
+        delete context;
+    };
+
+    t2u_socket sock_;
+    forward_context *context;
+    std::map<std::string, forward_rule_internal*> rules;
+    pthread_mutex_t mutex;
+};
+
+std::map<t2u_socket, forward_context_internal*> g_contexts;
+pthread_mutex_t g_contexts_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// start event loop
 static void start_event_loop()
 {
-    if (g_event_handle <= 0)
+    static int init = 0;
+
+    if (!init)
     {
-        g_event_handle = epoll_create(MAX_EVENTS);
+        event_init();
+        init = 1;
     }
     
-    g_event_loop_run = 1;
-    pthread_create(&g_event_thread, NULL, event_loop, NULL);
+    event_dispatch();
 }
 
+// end event loop
 static void stop_event_loop()
 {
-    g_event_loop_run = 0;
-    pthread_join(g_event_thread, NULL);
+    event_loopexit(NULL);
 }
-
 
 //
 forward_context *init_forward(t2u_socket udpsocket)
 {
-    pthread_mutex_lock(&g_forward_oper_mutex);
-    
-    // check duplicate 
-    internal_list *curr = g_forward_context_list;
-    while (curr != NULL)
-    {
-        forward_context *context = (forward_context *)curr->data;
-        forward_context_internal *internal = context->internal;
-        if (internal->udpsocket == udpsocket)
-        {
-            pthread_mutex_unlock(&g_forward_oper_mutex);   
-            return NULL;
-        }
-        curr = curr->next;
-    }
-        
-    // create new one, then insert.
-    forward_context_internal *internal = (forward_context_internal *) malloc(sizeof(forward_context_internal));
-    forward_context *context = (forward_context *) malloc(sizeof(forward_context));
-    internal_list *node = (internal_list *) malloc(sizeof(internal_list));
+    forward_context *ret = NULL;    
 
-    if (NULL == internal || NULL == context || NULL == node) 
+    pthread_mutex_lock(&g_contexts_mutex);
+    
+    std::map<t2u_socket, forward_context_internal *>::iterator it = g_contexts.find(udpsocket);
+    if (it != g_contexts.end())
     {
-        pthread_mutex_unlock(&g_forward_oper_mutex);   
+        pthread_mutex_unlock(&g_contexts_mutex);   
         return NULL;
     }
 
-    context->internal = internal;
-    internal->context = context;
-    internal->rules = NULL;
-    internal->udpsocket = udpsocket;
-    
-    // append
-    if (NULL != g_forward_context_list)
-    {
-        node->next = g_forward_context_list;
-        node->prev = NULL;
-        
-        g_forward_context_list->prev = node;
-        g_forward_context_list = node;
-    }
-    else
-    {
-        // this the head
-        node->next = NULL;
-        node->prev = NULL;
-        g_forward_context_list = node;
-    }
+    // insert new one.
+    forward_context_internal *context_internal = new forward_context_internal(udpsocket);
+    g_contexts[udpsocket] = context_internal;
 
-    node->data = context;
-    
-    if (0 == g_forward_context_count)
-    {
-        start_event_loop();
-    }
-    
-    ++g_forward_context_count;
-    
-    pthread_mutex_unlock(&g_forward_oper_mutex);
+    pthread_mutex_unlock(&g_contexts_mutex);
 
-    return context;
+    return context_internal->context;
 }
 
 void free_forward(forward_context *context)
 {
-    pthread_mutex_lock(&g_forward_oper_mutex);
+    pthread_mutex_lock(&g_contexts_mutex);
     
-    internal_list *curr = g_forward_context_list;
-    while (curr != NULL)
+    std::map<t2u_socket, forward_context_internal *>::iterator it = g_contexts.begin();
+    while (it != g_contexts.end())
     {
-        if (context == (forward_context *)curr->data)
+        if (it->second == context->internal)
         {
-            // remove this from list
-            if (curr->prev)
-            {
-                curr->prev->next = curr->next;
-            }
-            if (curr->next)
-            {
-                curr->next->prev = curr->prev;
-            }
-            
-            // delete context
-            free(curr);
-            free(context->internal);
-            free(context);
-            context->internal = NULL;
-            --g_forward_context_count;
-            
-            if (0 == g_forward_context_count)
-            {
-                stop_event_loop();
-            }
-            
-            break;
+            delete context;
+            g_contexts.erase(it->first);
         }
-        curr = curr->next;
     }
 
-    pthread_mutex_unlock(&g_forward_oper_mutex);
+    pthread_mutex_unlock(&g_contexts_mutex);
 }
+
 

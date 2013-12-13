@@ -1,4 +1,5 @@
 CC=gcc
+CXX=g++
 
 CFLAGS=-Wall -O2 -pipe -g
 
@@ -10,10 +11,10 @@ all: libt2u.a t2u_test
 libt2u.a: t2u.o 
 
 t2u_test: t2u_test.o t2u.o
-	$(CC) $^ -o $@ -lpthread
+	$(CXX) $^ -o $@ -lpthread -levent
 
-%.o: %.c 
-	$(CC) -c $^ -o $@ $(CFLAGS)
+%.o: %.cpp 
+	$(CXX) -c $^ -o $@ $(CFLAGS) 
 
 
 clean:

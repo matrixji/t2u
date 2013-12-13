@@ -1,6 +1,9 @@
 #ifndef __t2u_h__
 #define __t2u_h__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifdef WIN32
 #else
@@ -25,17 +28,21 @@ typedef struct forward_context_
 typedef struct forward_rule_
 {
     forward_mode mode;          /* client or server mode */
+    forward_context *context;   /* context */
     const char *service;        /* service name, for identify the service */
     const char *address;        /* remote tcp address, only use for server mode */
     unsigned short port;        /* tcp port, listen for client. connect for server */
-    unsigned long timeout;      /* timeout(seconds), after timeout, connection will drop */
 } forward_rule;
 
 forward_context *init_forward(t2u_socket udpsocket);
 void free_forward(forward_context *context);
 
 /* add a forwarder, return 0 if success. */
-int add_forward_rule (forward_context *context, forward_rule *rule);
-int remove_forward_rule (forward_context *context, forward_rule *rule);
+int add_forward_rule (forward_rule *rule);
+int remove_forward_rule (forward_rule *rule);
 
+#ifdef __cplusplus
+} ;
 #endif
+
+#endif //
