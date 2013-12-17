@@ -34,62 +34,43 @@ private:
 class forward_rule_internal: public internal_object
 {
 public:
-    forward_rule_internal(forward_rule *addrule)
-    {
-        rule = new forward_rule;
-        memcpy(rule, addrule, sizeof(rule));
-        
-        pthread_mutex_init(&mutex_, NULL);
-        ref_count_ = 1;
+    forward_rule_internal(forward_rule *addrule);
 
-    }
+    virtual ~forward_rule_internal();
 
-    ~forward_rule_internal()
-    {
-        delete rule;
-    }
+    // init listen for client mode. 
+    bool init();
 
-    bool init()
-    {
-        if (rule->mode = forward_client_mode)
-        {
-            // need to 
-        }
-    }
-
-    void retain() 
-    {
-        ++ref_count_;
-    };
-
-    void release() 
-    {
-        --ref_count_;
-        if (ref_count_ == 0)
-        {
-            delete this;
-        }
-    }
-
-    void lock()
-    {
-        pthread_mutex_lock(&mutex_);
-    }
-
-    void unlock()
-    {
-        pthread_mutex_unlock(&mutex_);
-    }
-    
+ private:  
     forward_rule *rule;
-
-private:
-    int ref_count_;
-    pthread_mutex_t mutex_;
     
     std::list<t2u_socket> sockList_;
     std::list<ev_io> eventList_;
     
+};
+
+class forward_context_internal: public internal_object
+{
+public:
+    forward_context_internal(t2u_socket udpsocket);
+
+    virtual ~forward_context_internal();
+
+    bool init();
+
+    forward_context *context();
+
+private:
+    forward_context *context_;
+    t2u_socket sock_;
+    ev_io event_;
+    std::map<std::string, forward_rule_internal*> rules_;
+};
+
+
+class forward_runner
+{
+
 };
 
 
