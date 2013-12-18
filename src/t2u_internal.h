@@ -17,14 +17,7 @@ public:
 
     void unlock();
 
-    void retain();
-
-    void release();
-
 private:
-    // reference counter
-    int ref_;
-
     // internal lock mutex
     pthread_mutex_t mutex_;
 
@@ -70,7 +63,19 @@ private:
 
 class forward_runner
 {
+public:
+    forward_runner &instance();
 
+    void start();
+
+    void stop();
+
+private:
+    forward_runner();
+
+
+private:
+    struct ev_loop *ev_;
 };
 
 
