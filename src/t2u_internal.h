@@ -12,6 +12,7 @@
 
 using std::shared_ptr;
 
+class forward_rule_internal;
 class forward_context_internal;
 class forward_runner;
 
@@ -20,7 +21,8 @@ typedef struct internal_ev_io_
     ev_io io;
     sock_t socket;
     forward_runner *runner;
-    shared_ptr<forward_context_internal> context;
+    forward_context_internal *context;
+    forward_rule_internal *rule;
 } internal_ev_io;
 
 class internal_exception: public std::exception
@@ -71,9 +73,17 @@ public:
     // rule
     forward_rule &rule();
 
+    // get service name.
     std::string &name();
 
- private:
+    // get listen socket
+    sock_t listen_socket();
+
+private:
+    static void handle_tcp_connect_callback(struct ev_loop* reactor, ev_io* w, int events);
+
+private:
+    sock_t listen_sock_; //useful when in client mode.
     std::string service_name_;
     forward_rule rule_;
 };
@@ -101,6 +111,9 @@ public:
         throw (internal_exception &);
 
 private:
+    static void handle_udp_input_callback(struct ev_loop* reactor, ev_io* w, int events);
+    
+private:
     forward_runner &runner_;
     forward_context context_;
     sock_t sock_;
@@ -124,6 +137,8 @@ public:
     
     void del_watcher(shared_ptr<internal_ev_io> w);
 
+    void del_watcher(sock_t sock);
+
 private:
     forward_runner();
     
@@ -133,7 +148,7 @@ private:
 
     static void *loop_func_(void *args);
     static void timeout_callback (EV_P_ ev_timer *w, int revents);
-    static void handle_udp_input_callback(struct ev_loop* reactor, ev_io* w, int events);
+    
     static void add_watcher_callback(int revents, void *args);
     static void del_watcher_callback(int revents, void *args);
     static void destructor_callback(int revents, void *args);
@@ -147,6 +162,7 @@ private:
     pthread_cond_t ev_event_cond_;
 
     ev_timer timeout_watcher;
+    std::map<sock_t, shared_ptr<forward_context_internal> > cs_;
     std::map<sock_t, shared_ptr<internal_ev_io> > ws_;
 };
 

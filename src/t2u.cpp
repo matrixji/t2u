@@ -6,6 +6,8 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+ #include <arpa/inet.h>
 
 #include <ev.h>
 
@@ -82,6 +84,7 @@ forward_rule_internal::forward_rule_internal(
     const char *service,
     unsigned short port):
     internal_object(), 
+    listen_sock_(0),
     service_name_(service),
     rule_({mode, &context, service_name_.c_str(), port})
 {
@@ -91,25 +94,62 @@ forward_rule_internal::forward_rule_internal(
 // destructor
 forward_rule_internal::~forward_rule_internal()
 {
+    // remove the watcher
+    if (forward_client_mode == rule_.mode && listen_sock_ > 0)
+    {
+        forward_context_internal *internal_context_ = (forward_context_internal *)rule_.context->internal;
+        internal_context_->runner().del_watcher(listen_sock_);
+    }
+
     LOG_(0, "delete rule mode: %d, service: %s, port: %u.", rule_.mode, rule_.service, rule_.port);
 }
 
-// init, XXX
+// init, listen if client mode.
 void forward_rule_internal::init() throw (internal_exception &)
 {
     // if in client mode, we need listen on lo
     if (rule_.mode == forward_client_mode)
     {
-        sock_t socket = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (-1 == socket)
+        listen_sock_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (-1 == listen_sock_)
         {
             std::string mess("create socket failed");
             throw internal_exception(mess);
         }
 
         // listen the socket
-        if (-1 == bind())
+        struct sockaddr_in listen_addr;
+        listen_addr.sin_port = ntohs(rule_.port);
+        listen_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+        if (-1 == bind(listen_sock_, (struct sockaddr *)&listen_addr, sizeof(listen_addr)))
+        {
+            closesocket(listen_sock_);
+            listen_sock_ = 0;
+            std::string mess("bind socket failed");
+            throw internal_exception(mess);
+        }
+
+        if (-1 == listen(listen_sock_, 256))
+        {
+            closesocket(listen_sock_);
+            listen_sock_ = 0;
+            std::string mess("listen socket failed");
+            throw internal_exception(mess);
+        }
+
+        // if have listen socket, add it to ev's watcher
+        forward_context_internal *internal_context = (forward_context_internal *) rule_.context->internal;
+        shared_ptr<internal_ev_io> w(new internal_ev_io);
+        ev_io_init((ev_io *)w.get(), &forward_rule_internal::handle_tcp_connect_callback, listen_sock_, EV_READ);
+        w->socket = listen_sock_;
+        w->runner = &internal_context->runner();
+        w->context = internal_context;
+        w->rule = this;
+
+        internal_context->runner().add_watcher(w);
     }
+
 }
 
 // rule
@@ -122,6 +162,21 @@ forward_rule &forward_rule_internal::rule()
 std::string &forward_rule_internal::name()
 {
     return service_name_;
+}
+
+// return listen socket if exist.
+sock_t forward_rule_internal::listen_socket()
+{
+    return listen_sock_;
+}
+
+void forward_rule_internal::handle_tcp_connect_callback(struct ev_loop* reactor, ev_io* w, int events)
+{
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr); 
+    internal_ev_io *iw = (internal_ev_io *)w;
+
+    sock_t s = accept(iw->rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len); 
 }
 
 // constructor
@@ -142,6 +197,10 @@ forward_context_internal::~forward_context_internal()
         rules_.erase(it++);
     }
     unlock();
+
+    // delete the watcher.
+    runner().del_watcher(sock_);
+
     LOG_(0, "delete context for socket: %d.", int (sock_));
 }
 
@@ -151,12 +210,18 @@ forward_runner &forward_context_internal::runner()
     return runner_;
 }
 
-
 // init XXX
 void forward_context_internal::init() throw (internal_exception &)
 {
-    std::string mess_;
-    throw internal_exception(mess_);
+    // add the udp socket to ev's watcher
+    shared_ptr<internal_ev_io> w(new internal_ev_io());
+    ev_io_init((ev_io *)w.get(), &forward_context_internal::handle_udp_input_callback, sock_, EV_READ);
+    w->socket = sock_;
+    w->runner = &runner();
+    w->context = this;
+    w->rule = NULL;
+
+    runner().add_watcher(w);
 }
 
 // 
@@ -188,6 +253,8 @@ void forward_context_internal::add_rule(shared_ptr<forward_rule_internal> rule)
         return;
     }
 
+    rule->init(); // if failed throw.
+
     rules_[rule->name()] = rule;
     unlock();
 }
@@ -196,6 +263,7 @@ void forward_context_internal::del_rule(const char *service_name)
     throw (internal_exception &)
 {
     lock();
+
     std::map<std::string, shared_ptr<forward_rule_internal> >::iterator it = 
         rules_.find(service_name);
     if (it == rules_.end())
@@ -209,6 +277,12 @@ void forward_context_internal::del_rule(const char *service_name)
     }
     rules_.erase(it);
     unlock();
+}
+
+
+// handle the udp packet. 
+void forward_context_internal::handle_udp_input_callback(struct ev_loop* reactor, ev_io* w, int events)
+{
 }
 
 // constructor
@@ -243,12 +317,6 @@ void forward_runner::timeout_callback (EV_P_ ev_timer *w, int revents)
     printf("xxxxx\n");
 }
 
-
-// handle the udp packet. 
-void forward_runner::handle_udp_input_callback(struct ev_loop* reactor, ev_io* w, int events)
-{
-
-}
 
 // handle new watcher add
 void forward_runner::add_watcher_callback(int revents, void *args)
@@ -289,7 +357,7 @@ void forward_runner::destructor_callback(int revents, void *args)
     {
         LOG_(0, "ev_io_stop ...");
         ev_io_stop(runner->loop_, (ev_io *)it->second.get());
-        ++it;
+        runner->ws_.erase(it++);
     }
 
     pthread_mutex_lock(&runner->ev_event_mutex_);
@@ -345,27 +413,21 @@ void forward_runner::add_context(shared_ptr<forward_context_internal> context)
     lock();
 
     {
-        std::map<sock_t, shared_ptr<internal_ev_io> >::iterator it = ws_.find(sock);
-        if (it != ws_.end())
+        std::map<sock_t, shared_ptr<forward_context_internal> >::iterator it = cs_.find(sock);
+        if (it != cs_.end())
         {
             unlock();
-            std::string mess = std::string("event io with the socket is already exist");
+            std::string mess = std::string("context with the socket is already exist");
             throw internal_exception(mess);
             return;
         }
     }
 
-    // add the udp socket to loop_
-    shared_ptr<internal_ev_io> w(new internal_ev_io());
-    ev_io_init((ev_io *)w.get(), &forward_runner::handle_udp_input_callback, sock, EV_READ);
-    w->socket = sock;
-    w->runner = this;
-    w->context = context;
-
-    add_watcher(w);
+    //
+    context->init(); // if failed will throw.
 
     // add to map
-    ws_[sock] = w;
+    cs_[sock] = context;
     unlock();
 }
 
@@ -383,7 +445,6 @@ void forward_runner::del_context(forward_context_internal *context)
         if (it != ws_.end())
         {
             del_watcher(it->second);
-            ws_.erase(it);
         }
         unlock();
     }
@@ -397,6 +458,9 @@ void forward_runner::add_watcher(shared_ptr<internal_ev_io> w)
 
     // wait add finish
     pthread_cond_wait(&ev_event_cond_, &ev_event_mutex_);
+
+    // add to map
+    ws_[w->socket] = w;
     pthread_mutex_unlock(&ev_event_mutex_);
 }
 
@@ -408,6 +472,32 @@ void forward_runner::del_watcher(shared_ptr<internal_ev_io> w)
 
     // wait delete finish
     pthread_cond_wait(&ev_event_cond_, &ev_event_mutex_);
+
+    // del from map
+    ws_.erase(w->socket);
+    pthread_mutex_unlock(&ev_event_mutex_);
+}
+
+void forward_runner::del_watcher(sock_t sock)
+{
+    pthread_mutex_lock(&ev_event_mutex_);
+    std::map<sock_t, shared_ptr<internal_ev_io> >::iterator it = ws_.find(sock);
+    if (ws_.end() == it)
+    {
+        // not exist,
+        pthread_mutex_unlock(&ev_event_mutex_);
+        return;
+    }
+
+    shared_ptr<internal_ev_io> w = it->second;
+    ev_once (loop_, 0, EV_READ, 0, 
+        forward_runner::del_watcher_callback, (void *)w.get());
+
+    // wait delete finish
+    pthread_cond_wait(&ev_event_cond_, &ev_event_mutex_);
+
+    // del from map
+    ws_.erase(w->socket);
     pthread_mutex_unlock(&ev_event_mutex_);
 }
 

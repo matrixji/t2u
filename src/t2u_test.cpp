@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
     rule_c[0] = add_forward_rule(context_c, forward_client_mode, "test_http", 1080);
     rule_c[1] = add_forward_rule(context_c, forward_client_mode, "test_ssh", 2222);
     
-    sleep(4);
+    sleep(20);
 
     free_forward(context_s);
     free_forward(context_c);
