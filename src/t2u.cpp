@@ -4,8 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
  #include <arpa/inet.h>
 
@@ -15,6 +18,11 @@
 #include <string>
 #include <map>
 #include <exception>
+
+
+#if ! defined MIN
+#define MIN(a,b) ((a)>(b)?(b):(a))
+#endif
 
 // log callback
 static void(*log_callback_func_)(int, const char *) = NULL;
@@ -77,29 +85,77 @@ void internal_object::unlock()
     LOG_(0, "unlock %p.", this);
 }
 
-
-forward_session::forward_session(sock_t sock, forward_rule_internal &rule):
-    sock_(sock), rule_(rule)
+#define FORWARD_SESSION_BUFF_LEN (4096)
+#define FORWARD_SESSION_ONCEREAD (1024)
+forward_session::forward_session(sock_t sock, forward_rule_internal *rule):
+    internal_object(),
+    sock_(sock), rule_(rule), seq_(0), ack_(0), 
+    rbuffer_(new char[FORWARD_SESSION_BUFF_LEN]), offset_(0),
+    signature_(0)
 {
+    struct timeval tv;
+    struct timezone tz;
 
+    gettimeofday(&tv, &tz);
+    signature_ = (tv.tv_sec) ^ (((uint64_t)sock_ << 32) & (uint64_t)sock_);
 }
 
 forward_session::~forward_session()
 {
     // remove self from rule & watcher
-    forward_context_internal *internal_context = (forward_context_internal *)(rule_.rule().context->internal);
+    forward_context_internal *internal_context = (forward_context_internal *)(rule_->rule().context->internal);
     forward_runner &runner = internal_context->runner();
 
     // del from watchers
     runner.del_watcher(sock_);
 
-    // del from rule
-    rule_.del_session(sock_);
+    // delete buffer
+    delete [] rbuffer_;
+
+    // close socket.
+    closesocket(sock_);
+}
+
+sock_t forward_session::socket()
+{
+    return sock_;
+}
+
+void forward_session::send_data(uint32_t start, uint32_t length)
+{
+    uint32_t remain_bytes = length;
+    while (remain_bytes > )
 }
 
 void forward_session::handle_tcp_input_callback(struct ev_loop* reactor, ev_io* w, int events)
 {
+    internal_ev_io *iw = (internal_ev_io *)w;
+    forward_session *session = iw->session;
+    sock_t sock = session->socket();
 
+    if (session->offset_ < FORWARD_SESSION_BUFF_LEN - 1)
+    {
+        size_t read_bytes = recv(sock, &session->rbuffer_[session->offset_], 
+            MIN(FORWARD_SESSION_BUFF_LEN - session->offset_, FORWARD_SESSION_ONCEREAD), 0);
+        if ((read_bytes < 0 && errno != EINTR) || read_bytes == 0)
+        {
+            // connection lost. delete it, 
+            // as session is managed by rule(shared_ptr), delete from rule
+            forward_rule_internal *rule = iw->rule;
+            rule->del_session(sock);
+            return;
+        }
+        else
+        {
+            // send data via udp.
+            offset_ += read_bytes;
+            send_data(seq_);
+        }
+    }
+    else
+    {
+        // buffer overflow
+    }
 }
 
 
@@ -142,6 +198,12 @@ void forward_rule_internal::init() throw (internal_exception &)
             std::string mess("create socket failed");
             throw internal_exception(mess);
         }
+
+        // set socket nonblock
+        int flags = fcntl(listen_sock_, F_GETFL, 0);
+        fcntl(listen_sock_, F_SETFL, flags|O_NONBLOCK);
+        int reuse = 1;
+        setsockopt(listen_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
         // listen the socket
         struct sockaddr_in listen_addr;
@@ -226,7 +288,11 @@ void forward_rule_internal::handle_tcp_connect_callback(struct ev_loop* reactor,
         return;
     }
 
-    shared_ptr<forward_session> session(new forward_session(nw->socket, *(nw->rule)));
+    // nonblock
+    int flags = fcntl(nw->socket, F_GETFL, 0);
+    fcntl(nw->socket, F_SETFL, flags|O_NONBLOCK);
+
+    shared_ptr<forward_session> session(new forward_session(nw->socket, iw->rule));
     nw->runner = iw->runner;
     nw->context = iw->context;
     nw->rule = iw->rule;
@@ -282,6 +348,10 @@ void forward_context_internal::init() throw (internal_exception &)
     w->runner = &runner();
     w->context = this;
     w->rule = NULL;
+
+    // nonblock
+    int flags = fcntl(sock_, F_GETFL, 0);
+    fcntl(sock_, F_SETFL, flags|O_NONBLOCK);
 
     runner().add_watcher(w);
 }
@@ -391,6 +461,7 @@ void forward_runner::add_watcher_callback(int revents, void *args)
     pthread_mutex_lock(&runner->ev_event_mutex_);
     pthread_cond_signal(&runner->ev_event_cond_);
     pthread_mutex_unlock(&runner->ev_event_mutex_);
+    LOG_(0, "add new watcher %p", w);
 }
 
 // handle watcher del
@@ -404,6 +475,7 @@ void forward_runner::del_watcher_callback(int revents, void *args)
     pthread_mutex_lock(&runner->ev_event_mutex_);
     pthread_cond_signal(&runner->ev_event_cond_);
     pthread_mutex_unlock(&runner->ev_event_mutex_);
+    LOG_(0, "delete watcher %p", w);
 }
 
 
@@ -514,6 +586,21 @@ void forward_runner::del_context(forward_context_internal *context)
 
 void forward_runner::add_watcher(shared_ptr<internal_ev_io> w)
 {
+    pthread_t tid = pthread_self();
+    forward_runner *runner = w->runner;
+
+    if (tid == runner->loop_tid_)
+    {
+        // already in callback
+        ev_io_start(runner->loop_, (ev_io *)w.get());
+        
+        pthread_mutex_lock(&ev_event_mutex_);
+        ws_[w->socket] = w;
+        pthread_mutex_unlock(&ev_event_mutex_);
+        LOG_(0, "add new watcher %p", w.get());
+        return;
+    }
+
     pthread_mutex_lock(&ev_event_mutex_);
     ev_once (loop_, 0, EV_READ, 0, 
         forward_runner::add_watcher_callback, (void *)w.get());
@@ -528,6 +615,20 @@ void forward_runner::add_watcher(shared_ptr<internal_ev_io> w)
 
 void forward_runner::del_watcher(shared_ptr<internal_ev_io> w)
 {
+    pthread_t tid = pthread_self();
+    forward_runner *runner = w->runner;
+
+    if (tid == runner->loop_tid_)
+    {
+        // already in callback
+        ev_io_stop(runner->loop_, (ev_io *)w.get());
+        pthread_mutex_lock(&ev_event_mutex_);
+        ws_.erase(w->socket);
+        pthread_mutex_unlock(&ev_event_mutex_);
+        LOG_(0, "delete watcher %p", w.get());
+        return;
+    }
+
     pthread_mutex_lock(&ev_event_mutex_);
     ev_once (loop_, 0, EV_READ, 0, 
         forward_runner::del_watcher_callback, (void *)w.get());
@@ -552,6 +653,20 @@ void forward_runner::del_watcher(sock_t sock)
     }
 
     shared_ptr<internal_ev_io> w = it->second;
+    pthread_t tid = pthread_self();
+    forward_runner *runner = w->runner;
+
+    if (tid == runner->loop_tid_)
+    {
+        // already in callback
+        ev_io_stop(runner->loop_, (ev_io *)w.get());
+        ws_.erase(w->socket);
+        pthread_mutex_unlock(&ev_event_mutex_);
+        
+        LOG_(0, "delete watcher %p", w.get());
+        return;
+    }
+
     ev_once (loop_, 0, EV_READ, 0, 
         forward_runner::del_watcher_callback, (void *)w.get());
 

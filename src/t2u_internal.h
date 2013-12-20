@@ -61,20 +61,26 @@ private:
 class forward_session: public internal_object
 {
 public:
-    forward_session(sock_t socket, forward_rule_internal &rule);
+    forward_session(sock_t socket, forward_rule_internal *rule);
+    
     virtual ~forward_session();
 
     sock_t socket();
+
+    void send_data(uint32_t start, uint32_t length);
 
 public:
     static void handle_tcp_input_callback(struct ev_loop* reactor, ev_io* w, int events);
 
 private:
     sock_t sock_;
-        forward_rule_internal &rule_;
+    forward_rule_internal *rule_;
     char *data;
-    unsigned long seq_;
-    unsigned long ack_;
+    uint32_t seq_;
+    uint32_t ack_;
+    char *rbuffer_;
+    uint32_t offset_;
+    uint64_t signature_;
 };
 
 class forward_rule_internal: public internal_object
