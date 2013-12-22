@@ -1,16 +1,47 @@
 #ifndef __t2u_internal_h__
 #define __t2u_internal_h__
 
-#include <pthread.h>
 #include "t2u.h"
+#include <pthread.h>
+#include <ev.h>
+
+#include <string>
+#include <map>
+#include <exception>
+#include <memory>
+
+using std::shared_ptr;
+
+class forward_context_internal;
+class forward_runner;
+
+typedef struct internal_ev_io_
+{
+    ev_io io;
+    sock_t socket;
+    forward_runner *runner;
+    shared_ptr<forward_context_internal> context;
+} internal_ev_io;
+
+class internal_exception: public std::exception
+{
+public:
+    internal_exception(std::string &what);
+
+    virtual ~internal_exception() throw();
+
+    virtual const char* what() const throw();
+
+private:
+    std::string what_;
+};
 
 class internal_object
 {
-private:
-   virtual ~internal_object();
-
 public:
     internal_object();
+    
+    virtual ~internal_object();
  
     // lock for protect members
     void lock();
@@ -27,55 +58,96 @@ private:
 class forward_rule_internal: public internal_object
 {
 public:
-    forward_rule_internal(forward_rule *addrule);
+    forward_rule_internal(forward_context &context, 
+                          forward_mode mode, 
+                          const char *service,
+                          unsigned short port);
 
     virtual ~forward_rule_internal();
 
     // init listen for client mode. 
-    bool init();
+    void init() throw (internal_exception &);
 
- private:  
-    forward_rule *rule;
-    
-    std::list<t2u_socket> sockList_;
-    std::list<ev_io> eventList_;
-    
+    // rule
+    forward_rule &rule();
+
+    std::string &name();
+
+ private:
+    std::string service_name_;
+    forward_rule rule_;
 };
+
 
 class forward_context_internal: public internal_object
 {
 public:
-    forward_context_internal(t2u_socket udpsocket);
+    forward_context_internal(sock_t udpsocket, forward_runner &runner);
 
     virtual ~forward_context_internal();
 
-    bool init();
+    forward_runner &runner();
 
-    forward_context *context();
+    void init() throw (internal_exception &);
+
+    forward_context &context();
+
+    sock_t socket();
+
+    void add_rule(shared_ptr<forward_rule_internal> internal_rule)
+        throw (internal_exception &);
+
+    void del_rule(const char *service_name)
+        throw (internal_exception &);
 
 private:
-    forward_context *context_;
-    t2u_socket sock_;
-    ev_io event_;
-    std::map<std::string, forward_rule_internal*> rules_;
+    forward_runner &runner_;
+    forward_context context_;
+    sock_t sock_;
+    std::map<std::string, shared_ptr<forward_rule_internal> > rules_;
 };
 
-
-class forward_runner
+class forward_runner: public internal_object
 {
 public:
-    forward_runner &instance();
+    virtual ~forward_runner();
 
-    void start();
+    static forward_runner &instance();
 
-    void stop();
+    void add_context(shared_ptr<forward_context_internal> context)
+        throw (internal_exception &);
+
+    void del_context(forward_context_internal *context)
+        throw (internal_exception &);
+
+    void add_watcher(shared_ptr<internal_ev_io> w);
+    
+    void del_watcher(shared_ptr<internal_ev_io> w);
 
 private:
     forward_runner();
+    
+    void start();
+    
+    void stop();
 
+    static void *loop_func_(void *args);
+    static void timeout_callback (EV_P_ ev_timer *w, int revents);
+    static void handle_udp_input_callback(struct ev_loop* reactor, ev_io* w, int events);
+    static void add_watcher_callback(int revents, void *args);
+    static void del_watcher_callback(int revents, void *args);
+    static void destructor_callback(int revents, void *args);
 
 private:
-    struct ev_loop *ev_;
+    pthread_t loop_tid_;
+    struct ev_loop *loop_;
+
+    // event for add_watcher done.
+    pthread_mutex_t ev_event_mutex_;
+    pthread_cond_t ev_event_cond_;
+
+    ev_timer timeout_watcher;
+    std::map<sock_t, shared_ptr<internal_ev_io> > ws_;
 };
 
 

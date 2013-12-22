@@ -1,7 +1,7 @@
 CC=gcc
 CXX=g++
 
-CXXFLAGS=-Wall -O2 -pipe -g -Wstrict-aliasing=0
+CXXFLAGS=-Wall -O0 -pipe -ggdb3 -Wstrict-aliasing=0 -std=c++0x
 
 RM=/bin/rm -fr
 

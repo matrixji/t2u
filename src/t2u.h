@@ -27,11 +27,15 @@
 extern "C" {
 #endif
 
+
 #ifdef WIN32
-    typedef SOCKET t2u_socket;
+    typedef SOCKET sock_t;
 #else
-    typedef int t2u_socket;
+    typedef int sock_t;
+    #define closesocket(s) close(s)
 #endif
+
+
 
 /* forward rule mode, client or server */
 typedef enum forward_mode_
@@ -59,7 +63,7 @@ typedef struct forward_rule_
 /* create a forward context with the udp socket pair 
  * if using this in STUN mode. you need to STUN is by yourself.
  */
-forward_context *init_forward(t2u_socket udpsocket);
+forward_context *init_forward(sock_t udpsocket);
 
 /*
  * destroy the context, and it's rules.
@@ -67,18 +71,21 @@ forward_context *init_forward(t2u_socket udpsocket);
  */
 void free_forward(forward_context *context);
 
-/* add a forward rule, return 0 if success. */
-int add_forward_rule (forward_rule *rule);
+/* add a forward rule, return NULL if failed. */
+forward_rule *add_forward_rule (forward_context *context, 
+                                forward_mode mode, 
+                                const char *service,
+                                unsigned short port);
 
 /* remove a forward rule */
-void remove_forward_rule (forward_rule *rule);
+void del_forward_rule (forward_rule *rule);
 
 /* log callback */
 /* level: 0: debug, 1: info, 2: warning, 3: error */
-void set_log_callback(void *(*cb)(int level, const char *message));
+void set_log_callback(void (*cb)(int level, const char *message));
 
 /* debug current internal variables */
-void debug_dump(int fd);
+// void debug_dump(int fd);
 
 #ifdef __cplusplus
 } ;
