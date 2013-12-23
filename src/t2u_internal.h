@@ -12,6 +12,7 @@
 
 using std::shared_ptr;
 
+class forward_session;
 class forward_rule_internal;
 class forward_context_internal;
 class forward_runner;
@@ -23,6 +24,7 @@ typedef struct internal_ev_io_
     forward_runner *runner;
     forward_context_internal *context;
     forward_rule_internal *rule;
+    forward_session *session;
 } internal_ev_io;
 
 class internal_exception: public std::exception
@@ -56,6 +58,24 @@ private:
 
 };
 
+class forward_session: public internal_object
+{
+public:
+    forward_session(sock_t socket, forward_rule_internal &rule);
+    virtual ~forward_session();
+
+    sock_t socket();
+
+public:
+    static void handle_tcp_input_callback(struct ev_loop* reactor, ev_io* w, int events);
+
+private:
+    sock_t sock_;
+        forward_rule_internal &rule_;
+    char *data;
+    unsigned long seq_;
+    unsigned long ack_;
+};
 
 class forward_rule_internal: public internal_object
 {
@@ -79,6 +99,12 @@ public:
     // get listen socket
     sock_t listen_socket();
 
+    // add session.
+    void add_session(shared_ptr<forward_session> session);
+
+    // del session.
+    void del_session(sock_t sock);
+
 private:
     static void handle_tcp_connect_callback(struct ev_loop* reactor, ev_io* w, int events);
 
@@ -86,6 +112,7 @@ private:
     sock_t listen_sock_; //useful when in client mode.
     std::string service_name_;
     forward_rule rule_;
+    std::map<sock_t, shared_ptr<forward_session> > sessions_;
 };
 
 

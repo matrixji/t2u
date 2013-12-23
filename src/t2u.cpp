@@ -77,6 +77,32 @@ void internal_object::unlock()
     LOG_(0, "unlock %p.", this);
 }
 
+
+forward_session::forward_session(sock_t sock, forward_rule_internal &rule):
+    sock_(sock), rule_(rule)
+{
+
+}
+
+forward_session::~forward_session()
+{
+    // remove self from rule & watcher
+    forward_context_internal *internal_context = (forward_context_internal *)(rule_.rule().context->internal);
+    forward_runner &runner = internal_context->runner();
+
+    // del from watchers
+    runner.del_watcher(sock_);
+
+    // del from rule
+    rule_.del_session(sock_);
+}
+
+void forward_session::handle_tcp_input_callback(struct ev_loop* reactor, ev_io* w, int events)
+{
+
+}
+
+
 // constructor
 forward_rule_internal::forward_rule_internal(
     forward_context &context, 
@@ -170,13 +196,49 @@ sock_t forward_rule_internal::listen_socket()
     return listen_sock_;
 }
 
+// add session.
+void forward_rule_internal::add_session(shared_ptr<forward_session> session)
+{
+    lock();
+    sessions_[session->socket()] = session;
+    unlock();
+}
+
+// del session.
+void forward_rule_internal::del_session(sock_t sock)
+{
+    lock();
+    sessions_.erase(sock);
+    unlock();
+}
+
 void forward_rule_internal::handle_tcp_connect_callback(struct ev_loop* reactor, ev_io* w, int events)
 {
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr); 
     internal_ev_io *iw = (internal_ev_io *)w;
 
-    sock_t s = accept(iw->rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len); 
+    shared_ptr<internal_ev_io> nw(new internal_ev_io);
+
+    nw->socket = accept(iw->rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len);
+    if (-1 == nw->socket)
+    {
+        return;
+    }
+
+    shared_ptr<forward_session> session(new forward_session(nw->socket, *(nw->rule)));
+    nw->runner = iw->runner;
+    nw->context = iw->context;
+    nw->rule = iw->rule;
+    nw->session = session.get();
+
+    // add to map
+    nw->rule->add_session(session);
+
+    ev_io_init((ev_io *)nw.get(), &forward_session::handle_tcp_input_callback, nw->socket, EV_READ);
+
+    // add watcher
+    nw->runner->add_watcher(nw);
 }
 
 // constructor
