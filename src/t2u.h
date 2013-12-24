@@ -32,7 +32,6 @@ extern "C" {
     typedef SOCKET sock_t;
 #else
     typedef int sock_t;
-    #define closesocket(s) close(s)
 #endif
 
 
@@ -46,39 +45,30 @@ typedef enum forward_mode_
 
 /* forward context,
  * one context mapping to one udp socket pair */
-typedef struct forward_context_ 
-{
-    void *internal;        /* internal context */
-} forward_context;
+typedef void *forward_context;
 
 /* forward rule */
-typedef struct forward_rule_
-{
-    forward_mode mode;          /* client or server mode */
-    forward_context *context;   /* context */
-    const char *service;        /* service name, for identify the service */
-    unsigned short port;        /* tcp port, listen for client. connect for server */
-} forward_rule;
+typedef void *forward_rule;
 
 /* create a forward context with the udp socket pair 
- * if using this in STUN mode. you need to STUN is by yourself.
+ * if using this in STUN mode. you need to STUN it by yourself.
  */
-forward_context *init_forward(sock_t udpsocket);
+forward_context init_forward(sock_t udpsocket);
 
 /*
  * destroy the context, and it's rules.
- * udp socket is not closed, you should manage it by youself.
+ * udp socket will not be closed, you should manage it by youself.
  */
-void free_forward(forward_context *context);
+void free_forward(forward_context context);
 
 /* add a forward rule, return NULL if failed. */
-forward_rule *add_forward_rule (forward_context *context, 
-                                forward_mode mode, 
-                                const char *service,
-                                unsigned short port);
+forward_rule add_forward_rule (forward_context context, 
+                               forward_mode mode, 
+                               const char *service,
+                               unsigned short port);
 
 /* remove a forward rule */
-void del_forward_rule (forward_rule *rule);
+void del_forward_rule (forward_rule rule);
 
 /* log callback */
 /* level: 0: debug, 1: info, 2: warning, 3: error */
