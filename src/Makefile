@@ -8,7 +8,7 @@ RM=/bin/rm -fr
 
 all: libt2u.a #t2u_test	
 
-libt2u.a: t2u_message.o 
+libt2u.a: t2u_message.o t2u.o
 
 t2u_test: t2u_test.o 
 	test -h libstdc++.a || ln -s `g++ -print-file-name=libstdc++.a` 
