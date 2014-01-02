@@ -1,0 +1,28 @@
+CC=gcc
+AR=ar
+RANLIB=ranlib
+
+CFLAGS=-Wall -Wextra -O0 -g -std=c89
+INCS=-Iinclude
+
+LIBT2U_SRCS=$(wildcard src/*.c)
+LIBT2U_OBJS=$(subst .c,.o,$(LIBT2U_SRCS))
+
+all: test_t2u libt2u.a
+
+
+libt2u.a: $(LIBT2U_OBJS)
+	/bin/rm -fr $@
+	$(AR) rcv $@ $^
+	$(RANLIB) $@
+
+%.o: %.c
+	$(CC) -o $@ -c $^ $(CFLAGS) $(INCS)
+
+
+test_t2u: test/t2u_test.o libt2u.a
+	$(CC) -o $@ $^ -L. -L/usr/local/lib -Wl,-Bstatic -lt2u -levent -Wl,-Bdynamic -lrt
+
+
+clean:
+	/bin/rm -fr $(LIBT2U_OBJS) test/t2u_test.o libt2u.a test_t2u

@@ -1,1 +1,6 @@
 *.o
+*.obj
+*.a
+*.so
+*.lib
+**/test_t2u
