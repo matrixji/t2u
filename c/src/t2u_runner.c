@@ -144,7 +144,7 @@ static void t2u_runner_control_callback(evutil_socket_t sock, short events, void
     control_data cdata;
     size_t len = 0;
     struct sockaddr_in addr_c;
-    int addrlen = sizeof(addr_c);
+    unsigned int addrlen = sizeof(addr_c);
     assert(t2u_thr_self() == runner->tid_);
 
     len = recvfrom(sock, (char *)&cdata, sizeof(cdata), 0, (struct sockaddr *) &addr_c, &addrlen);
@@ -544,7 +544,7 @@ static void t2u_runner_process_connect_timeout_callback(evutil_socket_t sock, sh
 static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, short events, void *arg)
 {
     int error = 0;
-    int len = sizeof(int);
+    unsigned int len = sizeof(int);
     t2u_event_data *ev = (t2u_event_data *)arg;
     t2u_runner *runner = ev->runner_;
     t2u_rule *rule = ev->rule_;
@@ -580,7 +580,7 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
 static void t2u_runner_process_accept_callback(evutil_socket_t sock, short events, void *arg)
 {
     struct sockaddr_in client_addr;
-    int client_len = sizeof(client_addr); 
+    unsigned int client_len = sizeof(client_addr); 
     t2u_event_data *ev = (t2u_event_data *)arg;
     t2u_rule *rule = (t2u_rule *)ev->rule_;
     t2u_context *context = (t2u_context *)rule->context_;
