@@ -93,9 +93,11 @@ void free_forward(forward_context c)
 /*
  * forward context option
  */
-void set_context_option(int option, unsigned long value)
+void set_context_option(forward_context c, int option, unsigned long value)
 {
-
+    (void)c;
+    (void)option;
+    (void)value;
 }
 
 
@@ -106,6 +108,10 @@ void set_context_option(int option, unsigned long value)
  */
 int forward_send(sock_t s, const char *buffer, size_t length)
 {
+    (void)s;
+    (void)buffer;
+    (void)length;
+
     return -1;
 }
 

@@ -196,13 +196,14 @@ void t2u_session_send_u_connect_response(t2u_session *session, char *connect_mes
     mess.data_->handle_ = ((t2u_message *)connect_message)->handle_;     /* response using the handle from request */
     mess.data_->seq_ = ((t2u_message *)connect_message)->seq_;           /* response using the seq from request */
 
+    uint32_t *phandle = (void *)mess.data_->payload;
     if (session->status_ == 2)
     {
-        *((uint32_t *)mess.data_->payload) = htonl(session->handle_); /* payload is new handle in server side */
+        *phandle = htonl(session->handle_);     /* payload is new handle in server side */
     }
     else
     {
-        *((uint32_t *)mess.data_->payload) = htonl(0);
+        *phandle = htonl(0);
     }
 
     t2u_session_send_u_mess(session, &mess);
@@ -248,7 +249,9 @@ void t2u_session_send_u_data_response(t2u_session *session, char *data_message, 
     mess.data_->oper_ = htons(data_response);
     mess.data_->handle_ = ((t2u_message *)data_message)->handle_;   /* response using the handle from request */
     mess.data_->seq_ = ((t2u_message *)data_message)->seq_;         /* response using the seq from request */
-    *((uint32_t *)mess.data_->payload) = htonl(error);              /* error */
+    
+    uint32_t *perr = (void *)mess.data_->payload;
+    *perr = htonl(error);                                           /* error */
 
     t2u_session_send_u_mess(session, &mess);
 

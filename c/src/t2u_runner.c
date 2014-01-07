@@ -128,12 +128,15 @@ static t2u_event_data *find_evdata_by_session(rbtree_node *node, t2u_session *se
 
 static void t2u_runner_control_process(t2u_runner *runner, control_data *cdata)
 {
+    (void) runner;
     assert (NULL != cdata->func_);
     cdata->func_(cdata->arg_);
 }
 
 static void t2u_runner_control_callback(evutil_socket_t sock, short events, void *arg)
 {
+    (void) events;
+
     t2u_runner *runner = (t2u_runner *)arg;
     control_data cdata;
     size_t len = 0;
@@ -191,6 +194,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
     t2u_runner *runner = ev->runner_;
     t2u_context *context = ev->context_;
 
+    (void) events;
     assert(NULL != buff);
 
     recv_bytes = recv(sock, buff, T2U_MESS_BUFFER_MAX, 0);
@@ -292,7 +296,8 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
     case connect_response:
         {
             uint32_t pair_handle = 0;
-            pair_handle = ntohl(*(uint32_t *)(message->payload));
+            uint32_t *phandle = (void *)(message->payload);
+            pair_handle = ntohl(*phandle);
 
             t2u_session *session = t2u_session_by_handle(ntohl(message->handle_));
             if (session)
@@ -367,9 +372,10 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
             }
             else
             {
-                LOG_(3, "nosuch session with pair handle: %p", pair_handle);
+                LOG_(3, "no such session with pair handle: %lu", (unsigned long) pair_handle);
                 /* no such session */
-                *((uint32_t *)message->payload) = htonl(2);
+                uint32_t *phandle = (void *)(message->payload);
+                *phandle = htonl(2);
                 message->oper_ = htons(data_response);
 
                 /* send response */
@@ -381,7 +387,8 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         break;
     case data_response:
         {
-            uint32_t error = *(uint32_t *)message->payload;
+            uint32_t *perror = (void *)message->payload;
+            uint32_t error = ntohl(*perror);
             t2u_session *session = t2u_session_by_handle(ntohl(message->handle_));
             if (session)
             {
@@ -421,7 +428,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
             }
             else
             {
-                LOG_(3, "nosuch session with handle: %p", ntohl(message->handle_));
+                LOG_(3, "no such session with handle: %lu", (unsigned long)ntohl(message->handle_));
                 /* no such session, drop it */
             }
 
@@ -447,6 +454,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
     char *buff = NULL;
+    (void)events;
 
     /* check session is ready for sent */
     if (session->mess_.data_)
@@ -507,17 +515,19 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
 
 static void t2u_runner_process_connect_timeout_callback(evutil_socket_t sock, short events, void *arg)
 {
-    int error = 0;
-    size_t len = sizeof(int);
     t2u_event_data *ev = (t2u_event_data *)arg;
-    t2u_runner *runner = ev->runner_;
-    t2u_context *context = ev->context_;
-    t2u_rule *rule = ev->rule_;
+    /* t2u_runner *runner = ev->runner_; */
+    /* t2u_context *context = ev->context_; */
+    /* t2u_rule *rule = ev->rule_; */
     t2u_session *session = ev->session_;
 
-    if (session->status_ == 2)
+    (void)sock;
+    (void)events;
+
+    if (session->status_ != 2)
     {
-        /* already connect success */
+        /* not connect */
+        t2u_session_delete(session);
     }
 
     /* cleanup, delete events and arg */
@@ -535,9 +545,10 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
     size_t len = sizeof(int);
     t2u_event_data *ev = (t2u_event_data *)arg;
     t2u_runner *runner = ev->runner_;
-    t2u_context *context = ev->context_;
     t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
+
+    (void)events;
 
     getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &len);
 
@@ -572,6 +583,9 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     t2u_rule *rule = (t2u_rule *)ev->rule_;
     t2u_context *context = (t2u_context *)rule->context_;
     t2u_runner *runner = (t2u_runner *)context->runner_;
+
+    (void)sock;
+    (void)events;
     
     sock_t s = accept(rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len);
     if (-1 == s)
@@ -615,6 +629,8 @@ static void t2u_runner_process_accept_timeout_callback(evutil_socket_t sock, sho
     t2u_session * session = nev->session_;
     t2u_context * context = nev->context_;
 
+    (void)sock;
+    (void)events;
 
     if (++session->send_retries_ >= context->uretries_)
     {
@@ -645,6 +661,9 @@ static void t2u_runner_process_send_timeout_callback(evutil_socket_t sock, short
     t2u_event_data *nev = (t2u_event_data *) arg;
     t2u_session * session = nev->session_;
     t2u_context * context = nev->context_;
+
+    (void)sock;
+    (void)events;
 
 
     if (++session->send_retries_ >= context->uretries_)
@@ -793,86 +812,6 @@ void t2u_runner_delete(t2u_runner *runner)
 
     /* last cleanup */
     free(runner);
-}
-
-#if 0
-/* XXXX */
-static void t2u_runner_stop_one_event(rbtree_node *node, void *arg)
-{
-    t2u_runner *runner = (t2u_runner *)arg;
-    struct event *ev = (struct event *)node->key;
-    event_del(ev);
-}
-
-static void t2u_runner_stop_all_events(evutil_socket_t sock, short events, void *arg)
-{
-    t2u_runner *runner = (t2u_runner *)arg;
-    rbtree_walk_inorder(runner->event_tree_->root, t2u_runner_stop_one_event, (void *)runner);
-}
-#endif
-
-/* add one event */
-static int t2u_runner_add_event(t2u_event_data * ev)
-{
-    int ret = 0;
-    t2u_runner *runner = ev->runner_;
-
-    assert((t2u_thr_self() == runner->tid_) || (runner->tid_ == 0));
-
-    ret = rbtree_insert(runner->event_tree_, (void *)ev->event_, (void *)ev);
-    if (ret == 0)
-    {
-        ret = event_add(ev->event_, NULL);
-        if (ret == 0)
-        {
-            return 0;
-        }
-        else
-        {
-            rbtree_remove(runner->event_tree_, (void *)ev->event_);
-            return -1;
-        }
-    }
-    else
-    {
-        return -1;
-    }
-}
-
-/* delete one event */
-static void t2u_runner_delete_event(t2u_event_data * ev)
-{
-    t2u_runner *runner = ev->runner_;
-    assert((t2u_thr_self() == runner->tid_) || (runner->tid_ == 0));
-
-    rbtree_remove(runner->event_tree_, (void *)ev->event_);
-    event_del(ev->event_);
-}
-
-static int t2u_runner_has_context(rbtree_node *node, t2u_context *context)
-{
-    if (node == NULL)
-    {
-        return 0;
-    }
-    else
-    {
-        if (1 == t2u_runner_has_context(node->left, context))
-        {
-            return 1;
-        }
-
-        if (node->data)
-        {
-            t2u_event_data *data = node->data;
-            if (data->context_ == context)
-            {
-                return 1;
-            }
-        }
-
-        return t2u_runner_has_context(node->right, context);
-    }
 }
 
 

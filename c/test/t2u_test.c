@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -109,7 +110,7 @@ int main(int argc, char *argv[])
     
     if (argc > 1)
     {
-        t2u_sleep(atoi(argv[1]));   
+        sleep(atoi(argv[1]));   
     }
     else
     {

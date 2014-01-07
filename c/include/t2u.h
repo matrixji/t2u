@@ -74,7 +74,7 @@ void free_forward(forward_context c);
 /*
  * forward context option
  */
-void set_context_option(int option, unsigned long value);
+void set_context_option(forward_context c, int option, unsigned long value);
 
 
 /*

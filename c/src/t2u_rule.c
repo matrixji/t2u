@@ -22,6 +22,7 @@
 
 t2u_rule *t2u_rule_new(void *context, forward_mode mode, const char *service, const char *addr, unsigned short port)
 {
+    (void) context;
     t2u_rule *rule = (t2u_rule *) malloc(sizeof(t2u_rule));
     assert (NULL != rule);
     memset(rule, 0, sizeof(t2u_rule));

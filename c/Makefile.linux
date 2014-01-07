@@ -2,7 +2,7 @@ CC=gcc
 AR=ar
 RANLIB=ranlib
 
-CFLAGS=-Wall -Wextra -O0 -g -std=c89
+CFLAGS=-Wall -Wextra -O2 -g 
 INCS=-Iinclude
 
 LIBT2U_SRCS=$(wildcard src/*.c)
