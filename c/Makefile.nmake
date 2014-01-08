@@ -1,0 +1,26 @@
+CC=cl
+AR=ar
+RANLIB=ranlib
+
+CFLAGS=/W3 /Ilibevent/WIN32-Code /Ilibevent/include /Iinclude /DWIN32 
+CFLAGS=$(CFLAGS) /D_CRT_SECURE_NO_WARNINGS
+INCS=-Iinclude
+
+LIBT2U_OBJS=src/t2u.obj src/t2u_session.obj src/t2u_thread.obj
+
+all: test_t2u.exe libt2u.lib
+
+
+libt2u.lib: $(LIBT2U_OBJS)
+
+
+%.obj: %.c
+	$(CC) /c %.c
+
+
+test_t2u.exe: test/t2u_test.obj libt2u.lib
+
+
+
+clean:
+	/bin/rm -fr $(LIBT2U_OBJS) test/t2u_test.obj libt2u.lib test_t2u.exe
