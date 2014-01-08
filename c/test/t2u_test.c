@@ -1,13 +1,19 @@
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#ifdef __GNUC__
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <string.h>
-#include <errno.h>
+#else
+#include <Windows.h>
+#endif
+
 
 #include "t2u.h"
 
@@ -40,7 +46,7 @@ int main(int argc, char *argv[])
     /* for c/s */
     forward_context context_s, context_c;
     forward_rule rule_s[2], rule_c[2];
-    int sock_s, sock_c;
+    sock_t sock_s, sock_c;
     struct sockaddr_in addr_s, addr_c;
     unsigned short port_c = 12345;
     unsigned short port_s = 23456;
@@ -110,7 +116,11 @@ int main(int argc, char *argv[])
     
     if (argc > 1)
     {
-        sleep(atoi(argv[1]));   
+#ifdef __GNUC__
+        sleep(atoi(argv[1])); 
+#else
+        Sleep(atoi(argv[1]) * 1000); 
+#endif
     }
     else
     {

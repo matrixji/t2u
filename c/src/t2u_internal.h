@@ -2,9 +2,7 @@
 #define __t2u_internal_h__
 
 
-#ifdef WIN32
-    
-#else
+#if defined __GNUC__
     #define closesocket close
 #endif
 
@@ -17,6 +15,22 @@ log_callback get_log_func_();
 error_callback get_error_func_();
 unknown_callback get_unknown_func_();
 
+#if defined _MSC_VER
+#define LOG_(level, ...) do { \
+    if (get_log_func_()) { \
+        char mess_[1024]; \
+        int n = sprintf(mess_, "[%s:%d] ", __FILE__, __LINE__); \
+        n += sprintf(&mess_[n], ##__VA_ARGS__); \
+        if (n < (int)sizeof(mess_) - 2) { \
+            if (mess_[n-1] != '\n') {\
+                mess_[n++] = '\n'; \
+                mess_[n++] = '\0'; \
+            } \
+            get_log_func_() (level, mess_) ; \
+        } \
+    } \
+} while (0)
+#else
 #define LOG_(level, fmt...) do { \
     if (get_log_func_()) { \
         char mess_[1024]; \
@@ -31,6 +45,7 @@ unknown_callback get_unknown_func_();
         } \
     } \
 } while (0)
+#endif
 
 /* event with data */
 typedef struct t2u_event_data_

@@ -179,6 +179,6 @@ void t2u_sleep(unsigned long ms)
     select(0, 0, 0, 0, &t);
 #endif
 #ifdef _MSC_VER
-    GetCurrentThreadId(ms);
+    Sleep(ms);
 #endif
 }

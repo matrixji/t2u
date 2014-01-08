@@ -1,17 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdint.h>
 #include <event2/event.h>
 #include <string.h>
-#include <unistd.h>
 #include <errno.h>
+
+#if defined __GNUC__
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <event2/event.h>
 #include <fcntl.h>
+#endif
 
 #include "t2u.h"
 #include "t2u_internal.h"
@@ -133,7 +136,7 @@ static void t2u_session_send_u_mess(t2u_session *session, session_message *mess)
 
     if (mess->data_)
     {
-        sent_bytes = send(context->sock_, mess->data_, mess->len_, 0);
+        sent_bytes = send(context->sock_, (const char *)mess->data_, (int)mess->len_, 0);
 
         if ((int)mess->len_ != sent_bytes)
         {
@@ -145,7 +148,7 @@ static void t2u_session_send_u_mess(t2u_session *session, session_message *mess)
 
 void t2u_session_send_u(t2u_session *session)
 {
-    return t2u_session_send_u_mess(session, &session->mess_);
+    t2u_session_send_u_mess(session, &session->mess_);
 }
 
 void t2u_session_send_u_connect(t2u_session *session)

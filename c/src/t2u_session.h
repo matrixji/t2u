@@ -26,7 +26,7 @@ typedef struct t2u_message_
 typedef struct session_message_
 {
     t2u_message *data_;
-    unsigned long len_;
+    size_t len_;
 } session_message;
 
 typedef struct t2u_session_
