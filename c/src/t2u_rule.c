@@ -2,13 +2,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 #include <event2/event.h>
+#include <event2/util.h>
+#ifdef __GNUC__
 #include <unistd.h>
-#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 
 #include "t2u.h"
 #include "t2u_internal.h"
@@ -40,10 +43,9 @@ t2u_rule *t2u_rule_new(void *context, forward_mode mode, const char *service, co
         }
 
         /* set socket nonblock */
-        int flags = fcntl(rule->listen_sock_, F_GETFL, 0);
-        fcntl(rule->listen_sock_, F_SETFL, flags|O_NONBLOCK);
+        evutil_make_socket_nonblocking(rule->listen_sock_);
         int reuse = 1;
-        setsockopt(rule->listen_sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        setsockopt(rule->listen_sock_, SOL_SOCKET, SO_REUSEADDR, (void *)&reuse, sizeof(reuse));
 
         /* listen the socket */
         struct sockaddr_in listen_addr;

@@ -1,17 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdint.h>
 #include <event2/event.h>
+#include <event2/util.h>
 #include <string.h>
-#include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
+
+#ifdef __GNUC__
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <event2/event.h>
-#include <fcntl.h>
+#endif
 
 #include "t2u.h"
 #include "t2u_internal.h"
@@ -141,10 +144,10 @@ static void t2u_runner_control_callback(evutil_socket_t sock, short events, void
     control_data cdata;
     size_t len = 0;
     struct sockaddr_in addr_c;
-    socklen_t addrlen = sizeof(addr_c);
+    int addrlen = sizeof(addr_c);
     assert(t2u_thr_self() == runner->tid_);
 
-    len = recvfrom(sock, &cdata, sizeof(cdata), 0, (struct sockaddr *) &addr_c, &addrlen);
+    len = recvfrom(sock, (char *)&cdata, sizeof(cdata), 0, (struct sockaddr *) &addr_c, &addrlen);
     if (len <= 0)
     {
         /* todo: error */
@@ -153,7 +156,7 @@ static void t2u_runner_control_callback(evutil_socket_t sock, short events, void
     t2u_runner_control_process(runner, &cdata);
 
     /* send back message. */
-    sendto(sock, &cdata, sizeof(cdata), 0, (const struct sockaddr *)&addr_c, sizeof(addr_c));
+    sendto(sock, (char *)&cdata, sizeof(cdata), 0, (const struct sockaddr *)&addr_c, sizeof(addr_c));
 
 }
 
@@ -169,8 +172,8 @@ void t2u_runner_control(t2u_runner *runner, control_data *cdata)
         int len; 
         t2u_mutex_lock(&runner->mutex_);
         
-        send(runner->sock_[1], cdata, sizeof(control_data), 0);
-        len = recv(runner->sock_[1], cdata, sizeof(control_data), 0);
+        send(runner->sock_[1], (char *) cdata, sizeof(control_data), 0);
+        len = recv(runner->sock_[1], (char *) cdata, sizeof(control_data), 0);
 
         if (len > 0)
         {
@@ -187,7 +190,7 @@ void t2u_runner_control(t2u_runner *runner, control_data *cdata)
 /* process new udp message in */
 static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, void *arg)
 {
-    ssize_t recv_bytes;
+    int recv_bytes;
     char *buff = (char *) malloc(T2U_MESS_BUFFER_MAX);
     t2u_message *message;
     t2u_event_data *ev = (t2u_event_data *)arg;
@@ -248,8 +251,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 }
 
                 /* unblocking */
-                int flags = fcntl(s, F_GETFL, 0);
-                fcntl(s, F_SETFL, flags|O_NONBLOCK);
+                evutil_make_socket_nonblocking(s);
 
                 /* connect, async */
                 int ret = connect(s, (struct sockaddr *)&rule->conn_addr_, sizeof(rule->conn_addr_));
@@ -348,7 +350,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
     case data_request:
         {
             char *payload = message->payload;
-            size_t payload_len = recv_bytes - sizeof(t2u_message);
+            int payload_len = recv_bytes - sizeof(t2u_message);
             uint32_t pair_handle = ntohl(message->handle_);
 
             /* check the pair_handle is already in use */
@@ -356,7 +358,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
             if (session)
             {
                 /* session find, forward the data */
-                ssize_t sent_bytes = send(session->sock_, payload, payload_len, 0);
+                int sent_bytes = send(session->sock_, payload, payload_len, 0);
 
                 if ((int)sent_bytes < (int)payload_len)
                 {
@@ -379,7 +381,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 message->oper_ = htons(data_response);
 
                 /* send response */
-                send(sock, message, sizeof(t2u_message) + sizeof(uint32_t), 0);
+                send(sock, (char *)message, sizeof(t2u_message) + sizeof(uint32_t), 0);
             }
 
             free(buff);
@@ -469,7 +471,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     buff = (char *)malloc(T2U_PAYLOAD_MAX);
     assert(NULL != buff);
 
-    ssize_t read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
+    int read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
 
     if (read_bytes <= 0)
     {
@@ -542,7 +544,7 @@ static void t2u_runner_process_connect_timeout_callback(evutil_socket_t sock, sh
 static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, short events, void *arg)
 {
     int error = 0;
-    size_t len = sizeof(int);
+    int len = sizeof(int);
     t2u_event_data *ev = (t2u_event_data *)arg;
     t2u_runner *runner = ev->runner_;
     t2u_rule *rule = ev->rule_;
@@ -550,7 +552,7 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
 
     (void)events;
 
-    getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &len);
+    getsockopt(sock, SOL_SOCKET, SO_ERROR, (void *)&error, &len);
 
     if (0 == error)
     {
@@ -578,7 +580,7 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
 static void t2u_runner_process_accept_callback(evutil_socket_t sock, short events, void *arg)
 {
     struct sockaddr_in client_addr;
-    socklen_t client_len = sizeof(client_addr); 
+    int client_len = sizeof(client_addr); 
     t2u_event_data *ev = (t2u_event_data *)arg;
     t2u_rule *rule = (t2u_rule *)ev->rule_;
     t2u_context *context = (t2u_context *)rule->context_;
@@ -594,8 +596,7 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     }
 
     /* nonblock */
-    int flags = fcntl(s, F_GETFL, 0);
-    fcntl(s, F_SETFL, flags|O_NONBLOCK);
+    evutil_make_socket_nonblocking(s);
 
     /* new session, this rule must be client mode. */
     t2u_session *session = t2u_session_new(rule, s);
@@ -1081,7 +1082,7 @@ int t2u_runner_delete_session(t2u_runner *runner, t2u_session *session)
 #if defined __GNUC__
     static void* t2u_runner_loop_(void *arg)
 #elif defined _MSC_VER
-    static DWORD __stdcall t2u_runner_loop_arg(void * arg)
+    static DWORD __stdcall t2u_runner_loop_(void * arg)
 #endif
 {
     t2u_runner *runner = (t2u_runner *)arg;

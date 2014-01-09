@@ -1,26 +1,23 @@
-CC=cl
-AR=ar
-RANLIB=ranlib
 
 CFLAGS=/W3 /Ilibevent/WIN32-Code /Ilibevent/include /Iinclude /DWIN32 
 CFLAGS=$(CFLAGS) /D_CRT_SECURE_NO_WARNINGS
 INCS=-Iinclude
 
-LIBT2U_OBJS=src/t2u.obj src/t2u_session.obj src/t2u_thread.obj
+LIBT2U_OBJS=src/t2u.obj src/t2u_session.obj src/t2u_thread.obj src/t2u_context.obj \
+            src/t2u_rbtree.obj src/t2u_rule.obj src/t2u_runner.obj
 
 all: test_t2u.exe libt2u.lib
 
 
 libt2u.lib: $(LIBT2U_OBJS)
+	lib /nologo $** /out:$@
 
-
-%.obj: %.c
-	$(CC) /c %.c
+.c.obj:
+	cl /c $** $(CFLAGS) /Fo$@ /nologo
 
 
 test_t2u.exe: test/t2u_test.obj libt2u.lib
-
-
+	cl /nologo /Fetest_t2u.exe $** libevent\libevent.lib ws2_32.lib advapi32.lib
 
 clean:
-	/bin/rm -fr $(LIBT2U_OBJS) test/t2u_test.obj libt2u.lib test_t2u.exe
+	del /f /q src\*.obj test\*.obj libt2u.lib test_t2u.exe

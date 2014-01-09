@@ -51,6 +51,11 @@ int main(int argc, char *argv[])
     unsigned short port_c = 12345;
     unsigned short port_s = 23456;
 
+#ifdef WIN32
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(1,2), &wsaData);
+#endif
+
 
     set_log_callback(test_log);
 
@@ -130,6 +135,10 @@ int main(int argc, char *argv[])
 
     free_forward(context_s);
     free_forward(context_c);
+
+#ifdef WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }
