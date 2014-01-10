@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <stdint.h>
 #include <event2/event.h>
 
 #include "t2u.h"
@@ -90,9 +89,10 @@ static void context_add_rule_cb(void *arg)
 void t2u_context_add_rule(t2u_context *context, t2u_rule *rule)
 {
     control_data cdata;
+    struct context_and_rule_ cnr;
+
     memset(&cdata, 0, sizeof(cdata));
 
-    struct context_and_rule_ cnr;
     cnr.context = context;
     cnr.rule = rule;
 
@@ -116,9 +116,9 @@ static void context_delete_rule_cb(void *arg)
 void t2u_context_delete_rule(t2u_context *context, t2u_rule *rule)
 {
     control_data cdata;
+    struct context_and_rule_ cnr;
     memset(&cdata, 0, sizeof(cdata));
 
-    struct context_and_rule_ cnr;
     cnr.context = context;
     cnr.rule = rule;
 

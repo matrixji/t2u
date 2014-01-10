@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <stdint.h>
 #include <event2/event.h>
 #include <event2/util.h>
 #include <string.h>
@@ -138,13 +137,14 @@ static void t2u_runner_control_process(t2u_runner *runner, control_data *cdata)
 
 static void t2u_runner_control_callback(evutil_socket_t sock, short events, void *arg)
 {
-    (void) events;
 
     t2u_runner *runner = (t2u_runner *)arg;
     control_data cdata;
     size_t len = 0;
     struct sockaddr_in addr_c;
     unsigned int addrlen = sizeof(addr_c);
+
+    (void) events;
     assert(t2u_thr_self() == runner->tid_);
 
     len = recvfrom(sock, (char *)&cdata, sizeof(cdata), 0, (struct sockaddr *) &addr_c, &addrlen);
@@ -226,9 +226,11 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         {
             char *service_name = message->payload;
             uint32_t pair_handle = ntohl(message->handle_);
+            t2u_rule *rule = NULL;
+            t2u_session *oldsession = NULL;
 
             /* check the pair_handle is already in use */
-            t2u_session *oldsession = t2u_session_by_pair_handle(pair_handle);
+            oldsession = t2u_session_by_pair_handle(pair_handle);
             if (oldsession)
             {
                 LOG_(2, "connection with remote handle is already exist.");
@@ -237,12 +239,18 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 del_forward_session(oldsession);
             }
 
-            t2u_rule *rule = t2u_context_find_rule(context, service_name);
+            rule = t2u_context_find_rule(context, service_name);
 
             if (rule)
             {
+                int ret;
+                sock_t s;
+                t2u_session *session;
+                t2u_event_data *ev;
+                struct timeval t;
+                
                 /* got rule */
-                sock_t s = socket(AF_INET, SOCK_STREAM, 0);
+                s = socket(AF_INET, SOCK_STREAM, 0);
                 if (-1 == s)
                 {
                     LOG_(3, "create socket failed");
@@ -254,8 +262,12 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 evutil_make_socket_nonblocking(s);
 
                 /* connect, async */
-                int ret = connect(s, (struct sockaddr *)&rule->conn_addr_, sizeof(rule->conn_addr_));
+                ret = connect(s, (struct sockaddr *)&rule->conn_addr_, sizeof(rule->conn_addr_));
+#if defined _MSC_VER
+                if ((ret == -1) && (WSAGetLastError() != WSAEWOULDBLOCK))
+#else
                 if ((ret == -1) && (errno != EINPROGRESS))
+#endif
                 {
                     LOG_(3, "connect socket failed");
                     closesocket(s);
@@ -264,13 +276,13 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 }
 
                 /* new session */
-                t2u_session *session = t2u_session_new(rule, s);
+                session = t2u_session_new(rule, s);
                 t2u_session_assign_remote_handle(session, pair_handle);
 
                 session->status_ = 1;
 
                 /* add events, timer for connect timeout, EVWRITE for connect ok */
-                t2u_event_data *ev = (t2u_event_data *) malloc(sizeof(t2u_event_data));
+                ev = (t2u_event_data *) malloc(sizeof(t2u_event_data));
                 assert(NULL != ev);
 
                 ev->runner_ = runner;
@@ -286,7 +298,6 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 ev->extra_event_ = event_new(runner->base_, s, EV_WRITE, t2u_runner_process_connect_success_callback, ev);
                 assert (NULL != ev->event_);
 
-                struct timeval t;
                 t.tv_sec = (context->utimeout_ * context->uretries_) / 1000;
                 t.tv_usec = ((context->utimeout_ * context->uretries_) % 1000) * 1000;
 
@@ -297,11 +308,12 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         break;
     case connect_response:
         {
+            t2u_session *session = NULL;
             uint32_t pair_handle = 0;
             uint32_t *phandle = (void *)(message->payload);
             pair_handle = ntohl(*phandle);
 
-            t2u_session *session = t2u_session_by_handle(ntohl(message->handle_));
+            session = t2u_session_by_handle(ntohl(message->handle_));
             if (session)
             {
                 t2u_rule *rule = session->rule_;
@@ -374,11 +386,12 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
             }
             else
             {
-                LOG_(3, "no such session with pair handle: %lu", (unsigned long) pair_handle);
                 /* no such session */
                 uint32_t *phandle = (void *)(message->payload);
                 *phandle = htonl(2);
                 message->oper_ = htons(data_response);
+
+                LOG_(3, "no such session with pair handle: %lu", (unsigned long) pair_handle);
 
                 /* send response */
                 send(sock, (char *)message, sizeof(t2u_message) + sizeof(uint32_t), 0);
@@ -456,6 +469,10 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
     char *buff = NULL;
+    int read_bytes;
+    struct timeval t;
+    t2u_event_data *nev;
+
     (void)events;
 
     /* check session is ready for sent */
@@ -471,7 +488,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     buff = (char *)malloc(T2U_PAYLOAD_MAX);
     assert(NULL != buff);
 
-    int read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
+    read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
 
     if (read_bytes <= 0)
     {
@@ -493,8 +510,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
         session->timeout_ev.event_ = NULL;
     }
 
-    struct timeval t;
-    t2u_event_data *nev = &session->timeout_ev;
+    nev = &session->timeout_ev;
 
     nev->runner_ = runner;
     nev->context_ = context;
@@ -585,11 +601,15 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     t2u_rule *rule = (t2u_rule *)ev->rule_;
     t2u_context *context = (t2u_context *)rule->context_;
     t2u_runner *runner = (t2u_runner *)context->runner_;
+    sock_t s;
+    t2u_session *session;
+    struct timeval t;
+    t2u_event_data *nev;
 
     (void)sock;
     (void)events;
     
-    sock_t s = accept(rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len);
+    s = accept(rule->listen_sock_, (struct sockaddr *)&client_addr, &client_len);
     if (-1 == s)
     {
         return;
@@ -599,14 +619,12 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     evutil_make_socket_nonblocking(s);
 
     /* new session, this rule must be client mode. */
-    t2u_session *session = t2u_session_new(rule, s);
+    session = t2u_session_new(rule, s);
     assert(NULL != session);
 
     /* session is created, create a timeout timer for remove the session */
     /* send message to remote for connecting */
-
-    struct timeval t;
-    t2u_event_data *nev = &session->timeout_ev;
+    nev = &session->timeout_ev;
 
     nev->runner_ = runner;
     nev->context_ = context;
@@ -788,11 +806,12 @@ void t2u_runner_delete(t2u_runner *runner)
     /* makesure stop first */
     if (runner->running_)
     {
+        control_data cdata;
+
         /* stop all event */
         runner->running_ = 0;
         
         /* post stop control message. */
-        control_data cdata;
         memset(&cdata, 0, sizeof(cdata));
 
         cdata.func_ = runner_delete_cb_;
@@ -937,9 +956,10 @@ int t2u_runner_add_rule(t2u_runner *runner, t2u_rule *rule)
     if (rule->mode_ == forward_client_mode)
     {
         control_data cdata;
+        struct runner_and_rule_ rnr;
+
         memset(&cdata, 0, sizeof(cdata));
 
-        struct runner_and_rule_ rnr;
         rnr.rule = rule;
         rnr.runner = runner;
 
@@ -974,9 +994,10 @@ int t2u_runner_delete_rule(t2u_runner *runner, t2u_rule *rule)
     if (rule->mode_ == forward_client_mode)
     {    
         control_data cdata;
+        struct runner_and_rule_ rnr;
+
         memset(&cdata, 0, sizeof(cdata));
 
-        struct runner_and_rule_ rnr;
         rnr.rule = rule;
         rnr.runner = runner;
 
@@ -1027,9 +1048,10 @@ void runner_add_session_cb_(void *arg)
 int t2u_runner_add_session(t2u_runner *runner, t2u_session *session)
 {
     control_data cdata;
+    struct runner_and_session_ rns;
+    
     memset(&cdata, 0, sizeof(cdata));
 
-    struct runner_and_session_ rns;
     rns.runner = runner;
     rns.session = session;
 
@@ -1063,9 +1085,10 @@ void runner_delete_session_cb_(void *arg)
 int t2u_runner_delete_session(t2u_runner *runner, t2u_session *session)
 {
     control_data cdata;
+    struct runner_and_session_ rns;
+
     memset(&cdata, 0, sizeof(cdata));
 
-    struct runner_and_session_ rns;
     rns.runner = runner;
     rns.session = session;
 

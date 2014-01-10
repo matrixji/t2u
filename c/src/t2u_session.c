@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <stdint.h>
 #include <event2/event.h>
 #include <string.h>
 #include <errno.h>
@@ -153,8 +152,15 @@ void t2u_session_send_u(t2u_session *session)
 
 void t2u_session_send_u_connect(t2u_session *session)
 {
+    t2u_rule *rule = (t2u_rule *) session->rule_;
+    size_t name_len = strlen(rule->service_);
+
+    t2u_message *mess = (t2u_message *) malloc (sizeof(t2u_message) + name_len + 1);
+    assert(NULL != mess);
+
     if (2 == session->status_)
     {
+        free(mess);
         return;
     }
 
@@ -165,12 +171,6 @@ void t2u_session_send_u_connect(t2u_session *session)
         session->mess_.data_ = NULL;
         session->mess_.len_ = 0;
     }
-
-    t2u_rule *rule = (t2u_rule *) session->rule_;
-    size_t name_len = strlen(rule->service_);
-
-    t2u_message *mess = (t2u_message *) malloc (sizeof(t2u_message) + name_len + 1);
-    assert(NULL != mess);
 
     session->mess_.len_ = sizeof(t2u_message) + name_len + 1;
     session->mess_.data_ = mess;
@@ -187,6 +187,7 @@ void t2u_session_send_u_connect(t2u_session *session)
 
 void t2u_session_send_u_connect_response(t2u_session *session, char *connect_message)
 {
+    uint32_t *phandle = NULL;
     session_message mess;
     mess.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
     assert(NULL != mess.data_);
@@ -199,7 +200,7 @@ void t2u_session_send_u_connect_response(t2u_session *session, char *connect_mes
     mess.data_->handle_ = ((t2u_message *)connect_message)->handle_;     /* response using the handle from request */
     mess.data_->seq_ = ((t2u_message *)connect_message)->seq_;           /* response using the seq from request */
 
-    uint32_t *phandle = (void *)mess.data_->payload;
+    phandle = (void *)mess.data_->payload;
     if (session->status_ == 2)
     {
         *phandle = htonl(session->handle_);     /* payload is new handle in server side */
@@ -217,13 +218,16 @@ void t2u_session_send_u_connect_response(t2u_session *session, char *connect_mes
 
 void t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
 {
+
+    t2u_message *mess = NULL;
+
     if (2 != session->status_)
     {
         return;
     }
 
     assert (NULL == session->mess_.data_);
-    t2u_message *mess = (t2u_message *) malloc (sizeof(t2u_message) + length);
+    mess = (t2u_message *) malloc (sizeof(t2u_message) + length);
     assert(NULL != mess);
 
     session->mess_.len_ = sizeof(t2u_message) + length;
@@ -242,6 +246,7 @@ void t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
 void t2u_session_send_u_data_response(t2u_session *session, char *data_message, uint32_t error)
 {
     session_message mess;
+    uint32_t *perr = NULL;
     mess.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
     assert(NULL != mess.data_);
 
@@ -253,7 +258,7 @@ void t2u_session_send_u_data_response(t2u_session *session, char *data_message, 
     mess.data_->handle_ = ((t2u_message *)data_message)->handle_;   /* response using the handle from request */
     mess.data_->seq_ = ((t2u_message *)data_message)->seq_;         /* response using the seq from request */
     
-    uint32_t *perr = (void *)mess.data_->payload;
+    perr = (void *)mess.data_->payload;
     *perr = htonl(error);                                           /* error */
 
     t2u_session_send_u_mess(session, &mess);

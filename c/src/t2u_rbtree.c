@@ -195,10 +195,11 @@ struct rbtree_node* do_lookup(void* key,
 
 }
 
-void*  rbtree_lookup(struct rbtree* tree,void* key)
+void *rbtree_lookup(struct rbtree* tree,void* key)
 {
-    assert(tree != NULL) ;
-    struct rbtree_node* node;
+    struct rbtree_node *node;
+    
+    assert(tree != NULL);
     node = do_lookup(key,tree,NULL);
     return node == NULL ?NULL:node->data;
 }

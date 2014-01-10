@@ -1,6 +1,26 @@
 #ifndef __t2u_internal_h__
 #define __t2u_internal_h__
 
+#if defined _MSC_VER
+
+#ifndef int32_t
+typedef __int32 int32_t;
+#endif
+
+#ifndef uint32_t
+typedef unsigned __int32 uint32_t;
+#endif
+
+#ifndef int16_t
+typedef __int16 int16_t;
+#endif
+
+#ifndef uint16_t
+typedef unsigned __int16 uint16_t;
+#endif
+
+#endif /* _MSC_VER */
+
 
 #if defined __GNUC__
     #define closesocket close

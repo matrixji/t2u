@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <stdint.h>
 #include <event2/event.h>
 #include <event2/util.h>
 #ifdef __GNUC__
@@ -25,8 +24,11 @@
 
 t2u_rule *t2u_rule_new(void *context, forward_mode mode, const char *service, const char *addr, unsigned short port)
 {
-    (void) context;
+    int reuse = 1;
+    struct sockaddr_in listen_addr;
     t2u_rule *rule = (t2u_rule *) malloc(sizeof(t2u_rule));
+
+    (void) context;
     assert (NULL != rule);
     memset(rule, 0, sizeof(t2u_rule));
 
@@ -44,11 +46,9 @@ t2u_rule *t2u_rule_new(void *context, forward_mode mode, const char *service, co
 
         /* set socket nonblock */
         evutil_make_socket_nonblocking(rule->listen_sock_);
-        int reuse = 1;
         setsockopt(rule->listen_sock_, SOL_SOCKET, SO_REUSEADDR, (void *)&reuse, sizeof(reuse));
 
         /* listen the socket */
-        struct sockaddr_in listen_addr;
         listen_addr.sin_family = AF_INET;
         listen_addr.sin_port = ntohs(port);
         if (addr)
