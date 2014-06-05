@@ -143,6 +143,11 @@ forward_rule add_forward_rule (forward_context c,       /* context */
 {
     t2u_context *context = (t2u_context *) c;
     t2u_rule *rule = t2u_rule_new((void *)context, mode, service, addr, port);
+
+    if (NULL == rule)
+    {
+        return NULL;
+    }
     
     /* add rule to context and runner */
     t2u_context_add_rule(c, rule);

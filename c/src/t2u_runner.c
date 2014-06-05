@@ -58,7 +58,7 @@ static t2u_event_data *find_evdata_by_context(rbtree_node *node, t2u_context *co
         if (!ret)
         {
             t2u_event_data *ev = (t2u_event_data *)node->data;
-            if (ev->context_ == context)
+            if (ev->context_ == context && ev->rule_ == NULL)
             {
                 ret = ev;
             }    
@@ -83,7 +83,7 @@ static t2u_event_data *find_evdata_by_rule(rbtree_node *node, t2u_rule *rule)
         if (!ret)
         {
             t2u_event_data *ev = (t2u_event_data *)node->data;
-            if (ev->rule_ == rule)
+            if (ev->rule_ == rule && ev->session_ == NULL)
             {
                 ret = ev;
             }    

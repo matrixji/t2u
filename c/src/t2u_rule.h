@@ -1,6 +1,10 @@
 #ifndef __t2u_rule_h__
 #define __t2u_rule_h__
 
+#ifdef __GNUC__
+#include <netinet/in.h>
+#endif
+
 typedef struct t2u_rule_
 {
     forward_mode mode_;             /* mode c/s */
