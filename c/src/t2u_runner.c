@@ -321,11 +321,11 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 t2u_runner *runner = context->runner_;
 
                 /* clear the timeout callback */
-                if (session->timeout_ev.event_)
+                if (session->timeout_ev_.event_)
                 {
-                    event_del(session->timeout_ev.event_);
-                    free(session->timeout_ev.event_);
-                    session->timeout_ev.event_ = NULL;
+                    event_del(session->timeout_ev_.event_);
+                    free(session->timeout_ev_.event_);
+                    session->timeout_ev_.event_ = NULL;
                 }
 
                 /* confirm the data */
@@ -476,7 +476,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     (void)events;
 
     /* check session is ready for sent */
-    if (session->mess_.data_)
+    if (session->send_buffer_count_ > SEND_MAX_BUFFER)
     {
         LOG_(1, "data not confirmed, disable event for session: %p", session);
         /* data is not confirmed, disable the event */
@@ -637,7 +637,7 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     t.tv_usec = (context->utimeout_ % 1000) * 1000;
     event_add(nev->event_, &t);
 
-    /* send the udp message */
+    /* do connect */
     t2u_session_send_u_connect(session);
 }
 
@@ -670,8 +670,8 @@ static void t2u_runner_process_accept_timeout_callback(evutil_socket_t sock, sho
         t.tv_usec = (context->utimeout_ % 1000) * 1000;
         event_add(nev->event_, &t);
 
-        /* send again */
-        t2u_session_send_u(session);
+        /* do connect again */
+        t2u_session_send_u_connect(session);
     }
 }
 

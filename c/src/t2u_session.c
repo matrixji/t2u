@@ -29,6 +29,14 @@ static rbtree *g_session_tree = NULL;
 static rbtree *g_session_tree_remote = NULL;
 static unsigned long g_session_count = 0;
 
+static int compare_session_message(void *a, void *b)
+{
+    session_message *sa = (session_message *)a;
+    session_message *sb = (session_message *)b;
+
+    return (sa->data_->seq_ - sb->data_->seq_);
+}
+
 t2u_session *t2u_session_new(void *rule, sock_t sock)
 {
     t2u_session *session = (t2u_session *)malloc(sizeof(t2u_session));
@@ -39,6 +47,9 @@ t2u_session *t2u_session_new(void *rule, sock_t sock)
 
     session->rule_ = rule;
     session->sock_ = sock;
+    
+    session->send_mess_ = rbtree_init(compare_session_message);
+    session->recv_mess_ = rbtree_init(compare_session_message);
 
     /* alloc a vaid handle */
     if (!g_session_tree)
@@ -58,22 +69,53 @@ t2u_session *t2u_session_new(void *rule, sock_t sock)
     return session;
 }
 
-void t2u_session_delete(t2u_session *session)
+
+
+static void t2u_session_message_init(t2u_session *session)
 {
     /* remove message */
-    if (session->mess_.data_)
+    while (session->send_mess_->root)
     {
-        free(session->mess_.data_);
-        session->mess_.data_ = NULL;
-        session->mess_.len_ = 0;
+        session_message *sm = (session_message *)session->send_mess_->root;
+        free(sm->data_);
+        
+        if (sm->timeout_ev_.event_)
+        {
+            event_del(sm->timeout_ev_.event_);
+            free(sm->timeout_ev_.event_);
+        }
+
+        rbtree_remove(session->send_mess_, (void *)sm);
+        free(sm);
     }
 
-    /* delete timeout event */
-    if (session->timeout_ev.event_)
+    while (session->recv_mess_->root)
     {
-        event_del(session->timeout_ev.event_);
-        free(session->timeout_ev.event_);
-        session->timeout_ev.event_ = NULL;
+        session_message *sm = (session_message *)session->recv_mess_->root;
+        free(sm->data_);
+        
+        if (sm->timeout_ev_.event_)
+        {
+            event_del(sm->timeout_ev_.event_);
+            free(sm->timeout_ev_.event_);
+        }
+
+        rbtree_remove(session->recv_mess_, (void *)sm);
+        free(sm);
+    }
+}
+
+void t2u_session_delete(t2u_session *session)
+{
+    // clear message 
+    t2u_session_message_init(session);
+
+    /* clear the timeout callback */
+    if (session->timeout_ev_.event_)
+    {
+        event_del(session->timeout_ev_.event_);
+        free(session->timeout_ev_.event_);
+        session->timeout_ev_.event_ = NULL;
     }
 
     /* close the socket */
@@ -127,17 +169,17 @@ t2u_session *t2u_session_by_handle(uint32_t handle)
 }
 
 
-static void t2u_session_send_u_mess(t2u_session *session, session_message *mess)
+void t2u_session_send_u_mess(t2u_session *session, session_message *sm)
 {
     int sent_bytes;
     t2u_rule *rule = (t2u_rule *) session->rule_;
     t2u_context *context = (t2u_context *)rule->context_;
 
-    if (mess->data_)
+    if (sm->data_)
     {
-        sent_bytes = send(context->sock_, (const char *)mess->data_, (int)mess->len_, 0);
+        sent_bytes = send(context->sock_, (const char *)sm->data_, (int)sm->len_, 0);
 
-        if ((int)mess->len_ != sent_bytes)
+        if ((int)sm->len_ != sent_bytes)
         {
             /* post error handle. */
         }
@@ -145,17 +187,15 @@ static void t2u_session_send_u_mess(t2u_session *session, session_message *mess)
 }
 
 
-void t2u_session_send_u(t2u_session *session)
-{
-    t2u_session_send_u_mess(session, &session->mess_);
-}
-
 void t2u_session_send_u_connect(t2u_session *session)
 {
     t2u_rule *rule = (t2u_rule *) session->rule_;
     size_t name_len = strlen(rule->service_);
 
     t2u_message *mess = (t2u_message *) malloc (sizeof(t2u_message) + name_len + 1);
+    session_message sm;
+    memset(&sm, 0, sizeof(session_message));
+
     assert(NULL != mess);
 
     if (2 == session->status_)
@@ -163,44 +203,43 @@ void t2u_session_send_u_connect(t2u_session *session)
         free(mess);
         return;
     }
-
+    
     /* remove message */
-    if (session->mess_.data_)
-    {
-        free(session->mess_.data_);
-        session->mess_.data_ = NULL;
-        session->mess_.len_ = 0;
-    }
-
-    session->mess_.len_ = sizeof(t2u_message) + name_len + 1;
-    session->mess_.data_ = mess;
+    t2u_session_message_init(session);
 
     mess->magic_ = htonl(T2U_MESS_MAGIC);
     mess->version_ = htons(0x0001);
     mess->oper_ = htons(connect_request);
     mess->handle_ = htonl(session->handle_);
-    mess->seq_ = htonl(session->send_seq_++);
+    
+    session->send_seq_ = 1; /* always using 1 as start seq */
+    mess->seq_ = htonl(session->send_seq_);
     sprintf(mess->payload, rule->service_);
 
-    t2u_session_send_u(session);
+    sm.data_ = mess;
+    sm.len_ = sizeof(t2u_message) + name_len + 1;
+
+    t2u_session_send_u_mess(session, &sm);
+    
+    free(mess);
 }
 
 void t2u_session_send_u_connect_response(t2u_session *session, char *connect_message)
 {
     uint32_t *phandle = NULL;
-    session_message mess;
-    mess.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
-    assert(NULL != mess.data_);
+    session_message sm;
+    sm.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
+    assert(NULL != sm.data_);
 
-    mess.len_ = sizeof(t2u_message) + sizeof(uint32_t);
+    sm.len_ = sizeof(t2u_message) + sizeof(uint32_t);
 
-    mess.data_->magic_ = htonl(T2U_MESS_MAGIC);
-    mess.data_->version_ = htons(0x0001);
-    mess.data_->oper_ = htons(connect_response);
-    mess.data_->handle_ = ((t2u_message *)connect_message)->handle_;     /* response using the handle from request */
-    mess.data_->seq_ = ((t2u_message *)connect_message)->seq_;           /* response using the seq from request */
+    sm.data_->magic_ = htonl(T2U_MESS_MAGIC);
+    sm.data_->version_ = htons(0x0001);
+    sm.data_->oper_ = htons(connect_response);
+    sm.data_->handle_ = ((t2u_message *)connect_message)->handle_;     /* response using the handle from request */
+    sm.data_->seq_ = ((t2u_message *)connect_message)->seq_;           /* response using the seq from request */
 
-    phandle = (void *)mess.data_->payload;
+    phandle = (void *)sm.data_->payload;
     if (session->status_ == 2)
     {
         *phandle = htonl(session->handle_);     /* payload is new handle in server side */
@@ -210,28 +249,30 @@ void t2u_session_send_u_connect_response(t2u_session *session, char *connect_mes
         *phandle = htonl(0);
     }
 
-    t2u_session_send_u_mess(session, &mess);
+    t2u_session_send_u_mess(session, &sm);
 
-    free(mess.data_);
+    free(sm.data_);
 }
 
 
-void t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
+session_message *t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
 {
 
     t2u_message *mess = NULL;
+    session_message *sm = NULL;
 
     if (2 != session->status_)
     {
-        return;
+        return NULL;
     }
 
-    assert (NULL == session->mess_.data_);
     mess = (t2u_message *) malloc (sizeof(t2u_message) + length);
+    sm = (session_message *) malloc (sizeof(session_message));
     assert(NULL != mess);
+    assert(NULL != sm);
 
-    session->mess_.len_ = sizeof(t2u_message) + length;
-    session->mess_.data_ = mess;
+    sm->len_ = sizeof(t2u_message) + length;
+    sm->data_ = mess;
 
     mess->magic_ = htonl(T2U_MESS_MAGIC);
     mess->version_ = htons(0x0001);
@@ -240,28 +281,30 @@ void t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
     mess->seq_ = htonl(session->send_seq_++);
     memcpy(mess->payload, data, length);
 
-    t2u_session_send_u(session);
+    t2u_session_send_u_mess(session, sm);
+    
+    return sm;
 }
 
 void t2u_session_send_u_data_response(t2u_session *session, char *data_message, uint32_t error)
 {
-    session_message mess;
+    session_message sm;
     uint32_t *perr = NULL;
-    mess.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
-    assert(NULL != mess.data_);
+    sm.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
+    assert(NULL != sm.data_);
 
-    mess.len_ = sizeof(t2u_message) + sizeof(uint32_t);
+    sm.len_ = sizeof(t2u_message) + sizeof(uint32_t);
 
-    mess.data_->magic_ = htonl(T2U_MESS_MAGIC);
-    mess.data_->version_ = htons(0x0001);
-    mess.data_->oper_ = htons(data_response);
-    mess.data_->handle_ = ((t2u_message *)data_message)->handle_;   /* response using the handle from request */
-    mess.data_->seq_ = ((t2u_message *)data_message)->seq_;         /* response using the seq from request */
+    sm.data_->magic_ = htonl(T2U_MESS_MAGIC);
+    sm.data_->version_ = htons(0x0001);
+    sm.data_->oper_ = htons(data_response);
+    sm.data_->handle_ = ((t2u_message *)data_message)->handle_;   /* response using the handle from request */
+    sm.data_->seq_ = ((t2u_message *)data_message)->seq_;         /* response using the seq from request */
     
-    perr = (void *)mess.data_->payload;
-    *perr = htonl(error);                                           /* error */
+    perr = (void *)sm.data_->payload;
+    *perr = htonl(error);                                          /* error */
 
-    t2u_session_send_u_mess(session, &mess);
+    t2u_session_send_u_mess(session, &sm);
 
-    free(mess.data_);
+    free(sm.data_);
 }

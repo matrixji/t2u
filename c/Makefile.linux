@@ -6,7 +6,7 @@ CFLAGS=-Wall -Wextra -O2 -g
 INCS=-Iinclude
 
 LIBT2U_SRCS=$(wildcard src/*.c)
-LIBT2U_OBJS=$(subst .c,.o,$(LIBT2U_SRCS))
+LIBT2U_OBJS=src/t2u_session.o $(subst .c,.o,$(LIBT2U_SRCS))
 
 all: test_t2u libt2u.a
 

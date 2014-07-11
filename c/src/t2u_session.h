@@ -27,21 +27,26 @@ typedef struct session_message_
 {
     t2u_message *data_;
     size_t len_;
+    unsigned long send_retries_;            /* retry count */
+    t2u_event_data timeout_ev_;             /* the timeout event */
 } session_message;
 
+#define SEND_MAX_BUFFER (256)
 typedef struct t2u_session_
 {
-    void *rule_;                    /* parent rule */
-    sock_t sock_;                   /* with the socket */
-    uint32_t handle_;               /* handle */
-    uint32_t pair_handle_;          /* remote handle */
-    unsigned long send_retries_;    /* retry count */
-    int status_;                    /* 0 for non, 1 for connecting, 2 for establish */
-    uint32_t send_seq_;             /* send seq */
-    /* uint32_t recv_seq_; */       /* recv seq */
-    session_message mess_;          /* send message list */
-    t2u_event_data timeout_ev;      /* the timeout event */
-    struct event* disable_event_;   /* disabled event */
+    void *rule_;                            /* parent rule */
+    sock_t sock_;                           /* with the socket */
+    uint32_t handle_;                       /* handle */
+    uint32_t pair_handle_;                  /* remote handle */
+    int status_;                            /* 0 for non, 1 for connecting, 2 for establish */
+    int send_buffer_count_;
+    uint32_t send_seq_;                     /* send seq */
+    uint32_t recv_seq_;                     /* recv seq */
+    rbtree *send_mess_;                     /* send message list */
+    rbtree *recv_mess_;                     /* recv message list */
+    unsigned long send_retries_;            /* retry count */
+    t2u_event_data timeout_ev_;             /* the timeout event */
+    struct event* disable_event_;           /* disabled event */
 } t2u_session;
 
 #define T2U_PAYLOAD_MAX (1024)
@@ -58,10 +63,10 @@ t2u_session *t2u_session_by_handle(uint32_t handle);
 
 
 /* operations for sending udp */
-void t2u_session_send_u(t2u_session *session);
+void t2u_session_send_u_mess(t2u_session *session, session_message *sm);
 void t2u_session_send_u_connect(t2u_session *session);
 void t2u_session_send_u_connect_response(t2u_session *session, char *connect_message);
-void t2u_session_send_u_data(t2u_session *session, char *data, size_t length);
+session_message *t2u_session_send_u_data(t2u_session *session, char *data, size_t length);
 void t2u_session_send_u_data_response(t2u_session *session, char *data_message, uint32_t error);
 
 

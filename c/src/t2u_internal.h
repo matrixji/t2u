@@ -75,6 +75,7 @@ typedef struct t2u_event_data_
     void *context_;                 /* the context */
     void *rule_;                    /* the rule */
     void *session_;                 /* the session */
+    void *session_message_;         /* the session message if used */
     sock_t sock_;                   /* the socket */
     int err_;                       /* last operation result. 0 for ok */
     struct event *extra_event_;     /* the event */

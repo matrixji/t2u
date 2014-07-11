@@ -530,12 +530,29 @@ int  rbtree_remove(struct rbtree* tree,void *key)
     return 0;
 }
 
-void rbtree_walk_inorder(struct rbtree_node *node, rbtree_walk_proc fn, void *arg)
+int rbtree_walk_inorder(struct rbtree_node *node, rbtree_walk_proc fn, void *arg)
 {
     if (node)
     {
-        rbtree_walk_inorder(node->left, fn, arg);
-        fn(node, arg);
-        rbtree_walk_inorder(node->right, fn, arg);
+        if (0 == rbtree_walk_inorder(node->left, fn, arg))
+        {
+            if (0 == fn(node, arg))
+            {
+                return rbtree_walk_inorder(node->right, fn, arg);
+            }
+            else
+            {
+                return -1;
+            }
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    else
+    {
+        return 0;
     }
 }
+
