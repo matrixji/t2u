@@ -137,6 +137,7 @@ int main(int argc, char *argv[])
     
     /* now using the udp tunnel */
     context=create_forward(sock);
+    set_context_option(context, 3, 64);
     
     if (isserver)
     {
