@@ -220,6 +220,11 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
     {
         /* unknown packet */
         LOG_(2, "recv unknown packet from context: %p", context);
+        unknown_callback uc = get_unknown_func_();
+        if (uc)
+        {
+            uc(context, buff, recv_bytes);
+        }
         free(buff);
         return;
     }

@@ -41,100 +41,116 @@ void test_log(int level, const char *mess)
     }
 }
 
+void usage(char *cmd)
+{
+    printf("%s server <udp-port> <service-name> <service-addr> <service-port>\n", cmd);
+    printf("%s client <server-addr> <server-port> <service-name> <listen-port>\n", cmd);
+    exit(1);
+}
+
 int main(int argc, char *argv[])
 {
     /* for c/s */
-    forward_context context_s, context_c;
-    forward_rule rule_s[2], rule_c[2];
-    sock_t sock_s, sock_c;
-    struct sockaddr_in addr_s, addr_c;
-    unsigned short port_c = 12345;
-    unsigned short port_s = 23456;
+    forward_context context;
+    forward_rule rule;
+    sock_t sock;
+    struct sockaddr_in addr;
+    //unsigned short port = 12345;
+    int isserver = 1;
+
+    if (argc != 6)
+    {
+        usage(argv[0]);
+    }
 
 #ifdef WIN32
     WSADATA wsaData;
     WSAStartup(MAKEWORD(1,2), &wsaData);
 #endif
 
-
-    set_log_callback(test_log);
-
-    /* we using localhost udp as tunnel,  */
-    /* so you can use tcpdump on lo interface to check the udp packet. */
-
-    /* client side listen */
-    sock_c = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock_c == -1)
+    if (strcmp(argv[1], "server") == 0)
     {
-        fprintf(stderr, "socket failed. %s\n", strerror(errno));
-        return 1;
+        isserver = 1;
     }
-    addr_c.sin_family = AF_INET;
-    addr_c.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr_c.sin_port = htons(port_c);
-
-    if (bind(sock_c, (struct sockaddr *)&addr_c, sizeof(addr_c)) == -1)
+    else if (strcmp(argv[1], "client") == 0)
     {
-        fprintf(stderr, "socket failed. %s\n", strerror(errno));
-        return 1;
-    }
-
-    /* server side listen */
-    sock_s = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock_s == -1)
-    {
-        fprintf(stderr, "bind failed. %s\n", strerror(errno));
-        return 1;
-    }
-    addr_s.sin_family = AF_INET;
-    addr_s.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr_s.sin_port = htons(port_s);
-
-    if (bind(sock_s, (struct sockaddr *)&addr_s, sizeof(addr_s)) == -1)
-    {
-        fprintf(stderr, "bind failed. %s\n", strerror(errno));
-        return 1;
-    }
-
-    /* connect each other */
-    if (connect(sock_c, (struct sockaddr *)&addr_s, sizeof(addr_s)) == -1)
-    {
-        fprintf(stderr, "connect failed. %s\n", strerror(errno));
-        return 1;
-    }
-    if (connect(sock_s, (struct sockaddr *)&addr_c, sizeof(addr_c)) == -1)
-    {
-        fprintf(stderr, "connect failed. %s\n", strerror(errno));
-        return 1;
-    }
-
-    /* now using the udp tunnel */
-
-    context_s=create_forward(sock_s);
-    rule_s[0] = add_forward_rule(context_s, forward_server_mode, "test_http", "127.0.0.1", 80);
-    rule_s[1] = add_forward_rule(context_s, forward_server_mode, "test_ssh", "127.0.0.1", 22);
-
-
-    context_c=create_forward(sock_c);
-    rule_c[0] = add_forward_rule(context_c, forward_client_mode, "test_http", "127.0.0.1", 1080);
-    rule_c[1] = add_forward_rule(context_c, forward_client_mode, "test_ssh", "127.0.0.1", 2222);
-    
-    if (argc > 1)
-    {
-#ifdef __GNUC__
-        sleep(atoi(argv[1])); 
-#else
-        Sleep(atoi(argv[1]) * 1000); 
-#endif
+        isserver = 0;
     }
     else
     {
-        printf("press any key to exit.\n");
-        getchar();
+        usage(argv[1]);
     }
 
-    free_forward(context_s);
-    free_forward(context_c);
+
+    set_log_callback(test_log);
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1)
+    {
+        fprintf(stderr, "socket failed. %s\n", strerror(errno));
+        return 1;
+    }
+
+    addr.sin_family = AF_INET;
+    if (isserver)
+    {
+        addr.sin_addr.s_addr = inet_addr("0.0.0.0");
+        addr.sin_port = htons(atoi(argv[2]));
+
+        if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+        {
+            fprintf(stderr, "bind failed. %s\n", strerror(errno));
+            return 1;
+        }
+
+        char buff[64];
+        socklen_t len = sizeof(addr);
+        recvfrom(sock, buff, sizeof(buff), 0, (struct sockaddr *)&addr, &len);
+        
+        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+        {
+            fprintf(stderr, "connect failed. %s\n", strerror(errno));
+            return 1;
+        }
+        send(sock, "hello\0", 6, 0);
+    }
+    else
+    {
+        addr.sin_addr.s_addr = inet_addr(argv[2]);
+        addr.sin_port = htons(atoi(argv[3]));
+
+        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+        {
+            fprintf(stderr, "connect failed. %s\n", strerror(errno));
+            return 1;
+        }
+
+        char buff[64];
+        send(sock, "hello\0", 6, 0);
+        recv(sock, buff, sizeof(buff), 0);
+        if (strcmp(buff, "hello") != 0)
+        {
+            fprintf(stderr, "hello failed. %s\n", strerror(errno));
+            return 1;
+        }
+    }
+    
+    /* now using the udp tunnel */
+    context=create_forward(sock);
+    
+    if (isserver)
+    {
+        rule = add_forward_rule(context, forward_server_mode, argv[3], argv[4], atoi(argv[5]));
+    }
+    else
+    {
+        rule = add_forward_rule(context, forward_client_mode, argv[4], "127.0.0.1", atoi(argv[5]));
+    }
+
+    printf("press any key to exit.\n");
+    getchar();
+
+    free_forward(context);
 
 #ifdef WIN32
     WSACleanup();
