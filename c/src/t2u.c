@@ -95,9 +95,54 @@ void free_forward(forward_context c)
  */
 void set_context_option(forward_context c, int option, unsigned long value)
 {
-    (void)c;
     (void)option;
     (void)value;
+    t2u_context *context = (t2u_context *)c;
+
+    switch (option)
+    {
+        case CTX_UDP_TIMEOUT:
+            {
+                if (value < 10)
+                {
+                    value = 10;
+                }
+                else if (value > 30000)
+                {
+                    value = 30000;
+                }
+                context->utimeout_ = value;
+            }
+            break;
+        case CTX_UDP_RETRIES:
+            {
+                if (value < 1)
+                {
+                    value = 1;
+                }
+                else if (value > 20)
+                {
+                    value = 20;
+                }
+                context->uretries_ = value;
+            }
+            break;
+        case CTX_UDP_SLIDEWINDOW:
+            {
+                if (value < 1)
+                {
+                    value = 1;
+                }
+                else if (value > 64)
+                {
+                    value = 64;
+                }
+                context->udp_slide_window_ = value;
+            }
+            break;
+        default:
+            break;
+    }
 }
 
 

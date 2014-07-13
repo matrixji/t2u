@@ -46,8 +46,6 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
 
 static void t2u_runner_process_send_timeout_callback(evutil_socket_t sock, short events, void *arg);
 
-
-
 /* some finder */
 static t2u_event_data *find_evdata_by_context(rbtree_node *node, t2u_context *context)
 {
@@ -210,9 +208,15 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
     }
 
     message = (t2u_message *)(void *)buff;
+    message->magic_ = ntohl(message->magic_);
+    message->version_ = ntohs(message->version_);
+    message->oper_ = ntohs(message->oper_);
+    message->handle_ = ntohl(message->handle_);
+    message->seq_ = ntohl(message->seq_);
+
     if (((int)recv_bytes < (int)sizeof(t2u_message)) ||
-        (message->magic_ != htonl(T2U_MESS_MAGIC)) ||
-        (message->version_ != htons(0x0001)))
+        (message->magic_ != T2U_MESS_MAGIC) ||
+        (message->version_ != 0x0001))
     {
         /* unknown packet */
         LOG_(2, "recv unknown packet from context: %p", context);
@@ -220,12 +224,12 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         return;
     }
 
-    switch (ntohs(message->oper_))
+    switch (message->oper_)
     {
     case connect_request:
         {
             char *service_name = message->payload;
-            uint32_t pair_handle = ntohl(message->handle_);
+            uint32_t pair_handle = message->handle_;
             t2u_rule *rule = NULL;
             t2u_session *oldsession = NULL;
 
@@ -313,7 +317,7 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
             uint32_t *phandle = (void *)(message->payload);
             pair_handle = ntohl(*phandle);
 
-            session = t2u_session_by_handle(ntohl(message->handle_));
+            session = t2u_session_by_handle(message->handle_);
             if (session)
             {
                 t2u_rule *rule = session->rule_;
@@ -326,14 +330,6 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                     event_del(session->timeout_ev_.event_);
                     free(session->timeout_ev_.event_);
                     session->timeout_ev_.event_ = NULL;
-                }
-
-                /* confirm the data */
-                if (session->mess_.data_)
-                {
-                    free(session->mess_.data_);
-                    session->mess_.data_= NULL;
-                    session->mess_.len_ = 0;
                 }
 
                 /* success */
@@ -349,13 +345,12 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                     /* failed */
                     t2u_session_delete(session);
                 }
-
             }
             else
             {
                 /* no such session, drop it */
+                LOG_(3, "no such session with handle: %lu", (unsigned long) message->handle_);
             }
-
             free(buff);
         }
         break;
@@ -363,25 +358,65 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         {
             char *payload = message->payload;
             int payload_len = recv_bytes - sizeof(t2u_message);
-            uint32_t pair_handle = ntohl(message->handle_);
+            uint32_t pair_handle = message->handle_;
 
             /* check the pair_handle is already in use */
             t2u_session *session = t2u_session_by_pair_handle(pair_handle);
             if (session)
             {
-                /* session find, forward the data */
-                int sent_bytes = send(session->sock_, payload, payload_len, 0);
-
-                if ((int)sent_bytes < (int)payload_len)
+                /* chceck the seq */
+                uint32_t incoming_seq = message->seq_;
+                uint32_t ahead = incoming_seq - session->recv_seq_;
+                
+                if ((ahead > 0x7fffffff) || (ahead == 0))
                 {
-                    /* error: send failed */
-                    LOG_(3, "send failed sent_bytes(%lu) < payload_len(%lu). ",
-                        (unsigned long) sent_bytes, (unsigned long) payload_len);
-                    t2u_session_send_u_data_response(session, buff, 1);
+                    /* packet already proceed */
+                    t2u_session_send_u_data_response(session, message, 0);
+                }
+                else if (ahead == 1)
+                {
+                    /* forward the data */
+                    int sent_bytes = send(session->sock_, payload, payload_len, 0);
+
+                    if (sent_bytes > 0)
+                    {
+                        t2u_session_send_u_data_response(session, message, 0);
+                        /* recv increase */
+                        ++session->recv_seq_;
+                    }
+                    else if ((int)sent_bytes == 0 || 
+                             ((sent_bytes < 0) && (errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN)))
+                    {
+                        /* error: send failed */
+                        LOG_(3, "send failed on socket %d, errno: %d, sent_bytes(%d) < payload_len(%d). ",
+                            session->sock_, errno,
+                            sent_bytes, payload_len);
+                        t2u_session_send_u_data_response(session, message, 1);
+                    }
+                    else
+                    {
+                        LOG_(3, "send failed on socket %d, errno: %d, blocked ...",
+                            session->sock_, errno);
+                    }
+
+
+                    /* TODO: check recv_mess_ */
                 }
                 else
                 {
-                    t2u_session_send_u_data_response(session, buff, 0);
+                    // message need to store for later process.
+                    /*
+                    session_message *sm = (session_message *) malloc (sizeof(session_message));
+                    t2u_message *nm = (t2u_message*) malloc(recv_bytes);
+
+                    memset(sm, 0, sizeof(session_message));
+                    memcpy(nm, message, recv_bytes);
+
+                    sm->data_ = nm;
+                    sm->len_ = recv_bytes;
+                    sm->seq_ = sm->data_->seq_;
+                    rbtree_insert(session->recv_mess_, &sm->seq_, sm);
+                    */
                 }
             }
             else
@@ -404,46 +439,59 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
         {
             uint32_t *perror = (void *)message->payload;
             uint32_t error = ntohl(*perror);
-            t2u_session *session = t2u_session_by_handle(ntohl(message->handle_));
+            t2u_session *session = t2u_session_by_handle(message->handle_);
             if (session)
             {
-                /* clear the timeout callback */
-                if (session->timeout_ev.event_)
+                /* find the sm */
+                session_message *sm = (session_message *) rbtree_lookup(session->send_mess_, &message->seq_);
+                
+                if (sm)
                 {
-                    event_del(session->timeout_ev.event_);
-                    free(session->timeout_ev.event_);
-                    session->timeout_ev.event_ = NULL;
-                }
-
-                /* confirm the data */
-                if (session->mess_.data_)
-                {
-                    free(session->mess_.data_);
-                    session->mess_.data_= NULL;
-                    session->mess_.len_ = 0;
-                }
-
-                /* success */
-                if (error == 0)
-                {
-                    /* nothing to do */
-                    /* add disable event */
-                    if (session->disable_event_)
+                    /* clear the timeout callback */
+                    if (sm->timeout_ev_.event_)
                     {
-                        LOG_(1, "data confirmed, add event for session back: %p", session);
-                        event_add(session->disable_event_, NULL);
-                        session->disable_event_ = NULL;
+                        event_del(sm->timeout_ev_.event_);
+                        free(sm->timeout_ev_.event_);
+                        sm->timeout_ev_.event_ = NULL;
                     }
+
+                    /* confirm the data, drop the message in send buffer list */
+                    {
+                        rbtree_remove(session->send_mess_, &message->seq_);
+                        free(sm->data_);
+                        free(sm);
+
+                        --session->send_buffer_count_;
+                        // printf("buffer length: %d\n", session->send_buffer_count_);
+                    }
+
+                    /* success */
+                    if (error == 0)
+                    {
+                        /* nothing to do */
+                        /* add disable event */
+                        if (session->disable_event_)
+                        {
+                            LOG_(1, "data confirmed, add event for session back: %p", session);
+                            event_add(session->disable_event_, NULL);
+                            session->disable_event_ = NULL;
+                        }
+                    }
+                    else
+                    {
+                        /* failed */
+                        del_forward_session(session);
+                    }
+
                 }
                 else
                 {
-                    /* failed */
-                    del_forward_session(session);
+                    LOG_(3, "no such session_message in send buffer list with seq: %lu", (unsigned long)message->seq_);
                 }
             }
             else
             {
-                LOG_(3, "no such session with handle: %lu", (unsigned long)ntohl(message->handle_));
+                LOG_(3, "no such session with handle: %lu", (unsigned long)(message->handle_));
                 /* no such session, drop it */
             }
 
@@ -476,7 +524,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     (void)events;
 
     /* check session is ready for sent */
-    if (session->send_buffer_count_ > SEND_MAX_BUFFER)
+    if (session->send_buffer_count_ >= context->udp_slide_window_)
     {
         LOG_(1, "data not confirmed, disable event for session: %p", session);
         /* data is not confirmed, disable the event */
@@ -492,7 +540,7 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
 
     if (read_bytes <= 0)
     {
-        LOG_(3, "recv on session:%p failed", session);
+        LOG_(3, "recv on session:%p failed. got: %d", session, read_bytes);
         
         /* error */
         free(buff);
@@ -502,21 +550,19 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
         return;
     }
 
-    /* add a timeout callback for resent data */
-    if (session->timeout_ev.event_)
-    {
-        event_del(session->timeout_ev.event_);
-        free(session->timeout_ev.event_);
-        session->timeout_ev.event_ = NULL;
-    }
+    /* send the data */
+    session_message *sm = t2u_session_send_u_data(session, buff, read_bytes);
+    free(buff);
 
-    nev = &session->timeout_ev;
+    assert (NULL != sm);
 
+    nev = &sm->timeout_ev_;
     nev->runner_ = runner;
     nev->context_ = context;
     nev->rule_ = rule;
     nev->session_ = session;
     nev->sock_ = sock;
+    nev->session_message_ = sm;
     nev->event_ = evtimer_new(runner->base_, t2u_runner_process_send_timeout_callback, nev);
     
     assert (NULL != nev->event_);
@@ -524,10 +570,10 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
     t.tv_usec = (context->utimeout_ % 1000) * 1000;
     event_add(nev->event_, &t);
 
-    session->send_retries_ = 0;
-    t2u_session_send_u_data(session, buff, read_bytes);
+    /* save data for resent */
+    session->send_buffer_count_++;
+    rbtree_insert(session->send_mess_, &sm->seq_, sm);
 
-    free(buff);
     return;
 }
 
@@ -624,7 +670,7 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
 
     /* session is created, create a timeout timer for remove the session */
     /* send message to remote for connecting */
-    nev = &session->timeout_ev;
+    nev = &session->timeout_ev_;
 
     nev->runner_ = runner;
     nev->context_ = context;
@@ -680,12 +726,11 @@ static void t2u_runner_process_send_timeout_callback(evutil_socket_t sock, short
     t2u_event_data *nev = (t2u_event_data *) arg;
     t2u_session * session = nev->session_;
     t2u_context * context = nev->context_;
+    session_message *sm = (session_message *)nev->session_message_;
 
     (void)sock;
     (void)events;
-
-
-    if (++session->send_retries_ >= context->uretries_)
+    if (++sm->send_retries_ >= context->uretries_)
     {
         LOG_(2, "timeout for send data, session: %lu, retry: %lu, delay: %lums",
             (unsigned long)session->handle_, context->uretries_, context->utimeout_);
@@ -707,7 +752,7 @@ static void t2u_runner_process_send_timeout_callback(evutil_socket_t sock, short
         event_add(nev->event_, &t);
 
         /* send again */
-        t2u_session_send_u(session);
+        t2u_session_send_u_mess(session, nev->session_message_);
     }
 }
 

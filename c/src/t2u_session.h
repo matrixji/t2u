@@ -27,11 +27,11 @@ typedef struct session_message_
 {
     t2u_message *data_;
     size_t len_;
+    uint32_t seq_;
     unsigned long send_retries_;            /* retry count */
     t2u_event_data timeout_ev_;             /* the timeout event */
 } session_message;
 
-#define SEND_MAX_BUFFER (256)
 typedef struct t2u_session_
 {
     void *rule_;                            /* parent rule */
@@ -67,7 +67,7 @@ void t2u_session_send_u_mess(t2u_session *session, session_message *sm);
 void t2u_session_send_u_connect(t2u_session *session);
 void t2u_session_send_u_connect_response(t2u_session *session, char *connect_message);
 session_message *t2u_session_send_u_data(t2u_session *session, char *data, size_t length);
-void t2u_session_send_u_data_response(t2u_session *session, char *data_message, uint32_t error);
+void t2u_session_send_u_data_response(t2u_session *session, t2u_message *mess, uint32_t error);
 
 
 #endif /* __t2u_session_h__ */

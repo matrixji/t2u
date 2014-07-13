@@ -70,6 +70,7 @@ void free_forward(forward_context c);
 
 #define CTX_UDP_TIMEOUT (0x01)      // timeout for udp packet wait response(ms). 10 - 30,000. default 500.
 #define CTX_UDP_RETRIES (0x02)      // retries for resent udp packets.           0 - 20, default 3.
+#define CTX_UDP_SLIDEWINDOW (0x03)  // slide window for udp packets.             1 - 64, default 16.
 
 /*
  * forward context option

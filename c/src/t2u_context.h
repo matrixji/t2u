@@ -8,6 +8,7 @@ typedef struct t2u_context_
     rbtree *rule_tree_;
     unsigned long utimeout_;        /* timeout for message */
     unsigned long uretries_;        /* retries for message */
+    int udp_slide_window_;          /* slide window for udp packets */
 } t2u_context;
 
 /* init */

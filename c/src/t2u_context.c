@@ -30,7 +30,8 @@ t2u_context * t2u_context_new(sock_t sock)
     context->sock_ = sock;
     context->utimeout_ = 500;
     context->uretries_ = 3;
-    
+    context->udp_slide_window_ = 16;
+
     LOG_(0, "create new context %p with sock %d", (void *)context, (int)sock);
     return context;
 }
