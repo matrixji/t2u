@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #include <sys/types.h>
-
+#include <stdint.h>
 
 #ifdef WIN32
     typedef SOCKET sock_t;

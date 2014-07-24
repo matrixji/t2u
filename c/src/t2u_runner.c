@@ -312,6 +312,8 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
 
                 event_add(ev->event_, &t);
                 event_add(ev->extra_event_, NULL);
+
+				t2u_rule_add_session(rule, session);
             }
         }
         break;
@@ -342,12 +344,13 @@ static void t2u_runner_process_udp_callback(evutil_socket_t sock, short events, 
                 {
                     session->status_ = 2;
                     t2u_session_assign_remote_handle(session, pair_handle);
-                    t2u_rule_add_session(rule, session);
+                    // t2u_rule_add_session(rule, session);
                     t2u_runner_add_session(runner, session);
                 }
                 else
                 {
                     /* failed */
+					t2u_rule_delete_session(rule, session);
                     t2u_session_delete(session);
                 }
             }
@@ -543,17 +546,30 @@ static void t2u_runner_process_tcp_callback(evutil_socket_t sock, short events, 
 
     read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
 
-    if (read_bytes <= 0)
-    {
-        LOG_(3, "recv on session:%p failed. got: %d", session, read_bytes);
-        
-        /* error */
-        free(buff);
+	if (read_bytes > 0)
+	{
+	}
+	else if ((int)read_bytes == 0 ||
+		((read_bytes < 0) && (errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN)))
+	{
+		LOG_(3, "recv failed on socket %d, errno: %d, read_bytes(%d). ",
+			session->sock_, errno, read_bytes);
 
-        /* close session */
-        del_forward_session(session);
-        return;
-    }
+		/* error */
+		free(buff);
+
+		/* close session */
+		del_forward_session(session);
+		return;
+	}
+	else
+	{
+		LOG_(3, "recv failed on socket %d, errno: %d, blocked ...",
+			session->sock_, errno);
+
+		free(buff);
+		return;
+	}
 
     /* send the data */
     session_message *sm = t2u_session_send_u_data(session, buff, read_bytes);
@@ -587,7 +603,7 @@ static void t2u_runner_process_connect_timeout_callback(evutil_socket_t sock, sh
     t2u_event_data *ev = (t2u_event_data *)arg;
     /* t2u_runner *runner = ev->runner_; */
     /* t2u_context *context = ev->context_; */
-    /* t2u_rule *rule = ev->rule_; */
+	t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
 
     (void)sock;
@@ -595,6 +611,8 @@ static void t2u_runner_process_connect_timeout_callback(evutil_socket_t sock, sh
 
     if (session->status_ != 2)
     {
+		t2u_rule_delete_session(rule, session);
+
         /* not connect */
         t2u_session_delete(session);
     }
@@ -626,12 +644,17 @@ static void t2u_runner_process_connect_success_callback(evutil_socket_t sock, sh
         LOG_(1, "connect for session: %lu success.", (unsigned long)session->handle_);
         session->status_ = 2;
 
-        t2u_rule_add_session(rule, session);
+        // t2u_rule_add_session(rule, session);
         t2u_runner_add_session(runner, session);
 
         /* post success */
         t2u_session_send_u_connect_response(session, ev->message_);
     }
+	else
+	{
+		LOG_(2, "connect for session: %lu failed.", (unsigned long)session->handle_);
+		t2u_rule_delete_session(rule, session);
+	}
 
     /* cleanup, delete events and arg */
     event_del(ev->event_);
@@ -688,6 +711,8 @@ static void t2u_runner_process_accept_callback(evutil_socket_t sock, short event
     t.tv_usec = (context->utimeout_ % 1000) * 1000;
     event_add(nev->event_, &t);
 
+	t2u_rule_add_session(rule, session);
+
     /* do connect */
     t2u_session_send_u_connect(session);
 }
@@ -698,6 +723,7 @@ static void t2u_runner_process_accept_timeout_callback(evutil_socket_t sock, sho
     t2u_event_data *nev = (t2u_event_data *) arg;
     t2u_session * session = nev->session_;
     t2u_context * context = nev->context_;
+	t2u_rule *rule = nev->rule_;
 
     (void)sock;
     (void)events;
@@ -711,6 +737,7 @@ static void t2u_runner_process_accept_timeout_callback(evutil_socket_t sock, sho
         free(nev->event_);
         nev->event_ = NULL;
 
+		t2u_rule_delete_session(rule, session);
         t2u_session_delete(session);
     }
     else
