@@ -280,6 +280,7 @@ session_message *t2u_session_send_u_data(t2u_session *session, char *data, size_
     sm->len_ = sizeof(t2u_message) + length;
     sm->data_ = mess;
     sm->send_retries_ = 0;
+    sm->fast_retry_ = 0;
 
     mess->magic_ = htonl(T2U_MESS_MAGIC);
     mess->version_ = htons(0x0001);

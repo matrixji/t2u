@@ -230,3 +230,20 @@ void del_forward_session(void *s)
 
     t2u_session_delete(session);
 }
+
+void del_forward_session_later(void *s)
+{
+    t2u_session *session = (t2u_session *)s;
+    t2u_rule *rule = (t2u_rule *) session->rule_;
+    t2u_context *context = (t2u_context *)rule->context_;
+    t2u_runner *runner = (t2u_runner *) context->runner_;
+
+    /* only remove from the runner */
+    t2u_runner_delete_session(runner, session);
+    session->remove_later_ = 1;
+    if (session->send_mess_->root == NULL)
+    {
+        del_forward_session(s);
+    }
+}
+

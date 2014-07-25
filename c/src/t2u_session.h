@@ -29,6 +29,7 @@ typedef struct session_message_
     size_t len_;
     uint32_t seq_;
     unsigned long send_retries_;            /* retry count */
+    unsigned long fast_retry_;
     t2u_event_data timeout_ev_;             /* the timeout event */
 } session_message;
 
@@ -47,6 +48,7 @@ typedef struct t2u_session_
     unsigned long send_retries_;            /* retry count */
     t2u_event_data timeout_ev_;             /* the timeout event */
     struct event* disable_event_;           /* disabled event */
+    int remove_later_;
 } t2u_session;
 
 #define T2U_PAYLOAD_MAX (1024)

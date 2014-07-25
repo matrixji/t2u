@@ -86,4 +86,7 @@ typedef struct t2u_event_data_
 /* delete session */
 void del_forward_session(void *s);
 
+/* delete session */
+void del_forward_session_later(void *s);
+
 #endif /* __t2u_internal_h__ */

@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        rule = add_forward_rule(context, forward_client_mode, argv[4], "127.0.0.1", atoi(argv[5]));
+        rule = add_forward_rule(context, forward_client_mode, argv[4], "0.0.0.0", atoi(argv[5]));
     }
 
     printf("press any key to exit.\n");
