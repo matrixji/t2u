@@ -5,12 +5,6 @@
 
 #include "t2u.h"
 #include "t2u_internal.h"
-#include "t2u_thread.h"
-#include "t2u_rbtree.h"
-#include "t2u_session.h"
-#include "t2u_rule.h"
-#include "t2u_context.h"
-#include "t2u_runner.h"
 
 
 /* global runner */
@@ -53,8 +47,6 @@ unknown_callback get_unknown_func_()
  */
 forward_context create_forward(sock_t s)
 {
-    t2u_context *context = t2u_context_new(s);
-
     if (!g_runner)
     {
         /* new a runner and run it. */
@@ -62,9 +54,7 @@ forward_context create_forward(sock_t s)
         assert(NULL != g_runner);
     }
 
-    t2u_runner_add_context(g_runner, context);
-
-    return (forward_context) context;
+    return (forward_context) t2u_add_context(g_runner, s);;
 }
 
 
@@ -76,11 +66,10 @@ void free_forward(forward_context c)
 {
     t2u_context *context = (t2u_context *)c;
 
-    t2u_runner_delete_context(g_runner, context);
-    t2u_context_delete(context);
+    t2u_delete_context(context);
 
     /* check runner */
-    if (g_runner && ((!g_runner->event_tree_) || (!g_runner->event_tree_->root)))
+    if (g_runner && ((!g_runner->contexts_) || (!g_runner->contexts_->root)))
     {
         /* the runner is already stopped and no events bind. */
         t2u_runner_delete(g_runner);
@@ -95,8 +84,6 @@ void free_forward(forward_context c)
  */
 void set_context_option(forward_context c, int option, unsigned long value)
 {
-    (void)option;
-    (void)value;
     t2u_context *context = (t2u_context *)c;
 
     switch (option)
@@ -187,16 +174,7 @@ forward_rule add_forward_rule (forward_context c,       /* context */
                                unsigned short port)     /* port, listen for client mode, forward port for client mode */
 {
     t2u_context *context = (t2u_context *) c;
-    t2u_rule *rule = t2u_rule_new((void *)context, mode, service, addr, port);
-
-    if (NULL == rule)
-    {
-        return NULL;
-    }
-    
-    /* add rule to context and runner */
-    t2u_context_add_rule(c, rule);
-    t2u_runner_add_rule((t2u_runner *)context->runner_, rule);
+    t2u_rule *rule = t2u_add_rule(context, mode, service, addr, port);
 
     return (forward_rule) rule;
 }
@@ -206,44 +184,23 @@ forward_rule add_forward_rule (forward_context c,       /* context */
 void del_forward_rule (forward_rule r)
 {
     t2u_rule *rule = (t2u_rule *) r;
-    t2u_context *context = (t2u_context *)rule->context_;
-    t2u_runner *runner = (t2u_runner *) context->runner_;
-
-    /* add rule to context and runner */
-    t2u_runner_delete_rule(runner, rule);
-    t2u_context_delete_rule(context, rule);
-
-    t2u_rule_delete(rule);
+    t2u_delete_rule(rule);
 }
 
-
-void del_forward_session(void *s)
+static void debug_dump_cb_(t2u_runner *runner, void *arg)
 {
-    t2u_session *session = (t2u_session *)s;
-    t2u_rule *rule = (t2u_rule *) session->rule_;
-    t2u_context *context = (t2u_context *)rule->context_;
-    t2u_runner *runner = (t2u_runner *) context->runner_;
-
-    /* add rule to context and runner */
-    t2u_runner_delete_session(runner, session);
-    t2u_rule_delete_session(rule, session);
-
-    t2u_session_delete(session);
+    FILE *fp = (FILE *)arg;
+    fprintf(fp, "runner: %p\n", runner);
 }
 
-void del_forward_session_later(void *s)
+void debug_dump(FILE *fp)
 {
-    t2u_session *session = (t2u_session *)s;
-    t2u_rule *rule = (t2u_rule *) session->rule_;
-    t2u_context *context = (t2u_context *)rule->context_;
-    t2u_runner *runner = (t2u_runner *) context->runner_;
-
-    /* only remove from the runner */
-    t2u_runner_delete_session(runner, session);
-    session->remove_later_ = 1;
-    if (session->send_mess_->root == NULL)
+    if (g_runner)
     {
-        del_forward_session(s);
+        control_data cdata;
+        cdata.func_ = debug_dump_cb_;
+        cdata.arg_ = fp;
+
+        t2u_runner_control(g_runner, &cdata);
     }
 }
-
