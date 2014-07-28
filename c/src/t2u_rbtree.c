@@ -48,18 +48,6 @@ static int is_root(struct rbtree_node* node)
     return (get_parent(node)==NULL);
 }
 
-static inline int is_black(struct rbtree_node* node)
-{
-    assert(node != NULL);
-    return (get_color(node) == RB_BLACK);
-}
-
-static inline int is_red(struct rbtree_node *node)
-{
-    assert(node != NULL);
-    return (get_color(node) == RB_RED);
-}
-
 struct rbtree_node* sibling(rbtree_node* node)
 {
     assert (node != NULL);

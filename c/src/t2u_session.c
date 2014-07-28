@@ -17,12 +17,6 @@
 
 #include "t2u.h"
 #include "t2u_internal.h"
-#include "t2u_thread.h"
-#include "t2u_rbtree.h"
-#include "t2u_session.h"
-
-#include "t2u_rule.h"
-#include "t2u_context.h"
 
 
 static rbtree *g_session_tree = NULL;
@@ -37,284 +31,399 @@ static int compare_uint32_ptr(void *a, void *b)
     return ((*sa) - (*sb));
 }
 
-t2u_session *t2u_session_new(void *rule, sock_t sock)
+
+static void process_tcp_cb_(evutil_socket_t sock, short events, void *arg)
 {
-    t2u_session *session = (t2u_session *)malloc(sizeof(t2u_session));
-    assert(NULL != session);
-    memset(session, 0, sizeof(t2u_session));
+    t2u_event *ev = (t2u_event *)arg;
+    t2u_runner *runner = ev->runner_;
+    t2u_context *context = ev->context_;
+    t2u_rule *rule = ev->rule_;
+    t2u_session *session = ev->session_;
+    char *buff = NULL;
+    int read_bytes;
+    struct timeval t;
+    t2u_event *nev;
 
-    session->handle_ = (uint32_t)sock;
+    (void)events;
 
-    session->rule_ = rule;
-    session->sock_ = sock;
-    
-    session->send_mess_ = rbtree_init(compare_uint32_ptr);
-    session->recv_mess_ = rbtree_init(compare_uint32_ptr);
-
-    /* alloc a vaid handle */
-    if (!g_session_tree)
+    /* check session is ready for sent */
+    if (session->send_buffer_count_ >= context->udp_slide_window_)
     {
-        g_session_tree = rbtree_init(compare_uint32_ptr);
-    }
-
-    if (!g_session_tree_remote)
-    {
-        g_session_tree_remote = rbtree_init(compare_uint32_ptr);
-    }
-
-    rbtree_insert(g_session_tree, &session->handle_, session);
-    ++g_session_count;
-    
-    LOG_(1, "create new session %p(%lu)", session, (unsigned long)session->handle_);
-    return session;
-}
-
-
-
-static void t2u_session_message_init(t2u_session *session)
-{
-    /* remove message */
-    while (session->send_mess_->root)
-    {
-        session_message *sm = (session_message *)session->send_mess_->root->data;
-        void *key = (session_message *)session->send_mess_->root->key;
-        if (sm->timeout_ev_.event_)
-        {
-            event_del(sm->timeout_ev_.event_);
-            free(sm->timeout_ev_.event_);
-        }
-
-        rbtree_remove(session->send_mess_, key);
-        free(sm->data_);
-        free(sm);
-    }
-
-    while (session->recv_mess_->root)
-    {
-        session_message *sm = (session_message *)session->recv_mess_->root->data;
-        void *key = (session_message *)session->recv_mess_->root->key;
-        if (sm->timeout_ev_.event_)
-        {
-            event_del(sm->timeout_ev_.event_);
-            free(sm->timeout_ev_.event_);
-        }
-
-        rbtree_remove(session->recv_mess_, key);
-        free(sm->data_);
-        free(sm);
-    }
-
-    session->send_buffer_count_ = 0;
-}
-
-void t2u_session_delete(t2u_session *session)
-{
-    // clear message 
-    t2u_session_message_init(session);
-
-    free(session->send_mess_);
-    free(session->recv_mess_);
-    session->send_mess_ = NULL;
-    session->recv_mess_ = NULL;
-
-    /* clear the timeout callback */
-    if (session->timeout_ev_.event_)
-    {
-        event_del(session->timeout_ev_.event_);
-        free(session->timeout_ev_.event_);
-        session->timeout_ev_.event_ = NULL;
-    }
-
-    /* close the socket */
-    closesocket(session->sock_);
-    if (session->pair_handle_ > 0)
-    {
-        rbtree_remove(g_session_tree_remote, &session->pair_handle_);
-    }
-    rbtree_remove(g_session_tree, &session->handle_);
-
-    LOG_(1, "delete the session %p(%lu)", session, (unsigned long)session->handle_);
-    free(session);
-
-    --g_session_count;
-    if (g_session_count == 0)
-    {
-        free(g_session_tree);
-        free(g_session_tree_remote);
-
-        g_session_tree = NULL;
-        g_session_tree_remote = NULL;
-    }
-}
-
-void t2u_session_assign_remote_handle(t2u_session *session, uint32_t remote_handle)
-{
-    session->pair_handle_ = remote_handle;
-    if (g_session_tree_remote)
-    {  
-        rbtree_remove(g_session_tree_remote, &remote_handle);
-        rbtree_insert(g_session_tree_remote, &session->pair_handle_, session);
-    }
-}
-
-t2u_session *t2u_session_by_pair_handle(uint32_t remote_handle)
-{
-    if (g_session_tree_remote)
-    {
-        return rbtree_lookup(g_session_tree_remote, &remote_handle);
-    }
-    return NULL;
-}
-
-t2u_session *t2u_session_by_handle(uint32_t handle)
-{
-    if (g_session_tree)
-    {
-        return rbtree_lookup(g_session_tree, &handle);
-    }
-    return NULL;
-}
-
-
-void t2u_session_send_u_mess(t2u_session *session, session_message *sm)
-{
-    int sent_bytes;
-    t2u_rule *rule = (t2u_rule *) session->rule_;
-    t2u_context *context = (t2u_context *)rule->context_;
-
-    if (sm->data_)
-    {
-        sent_bytes = send(context->sock_, (const char *)sm->data_, (int)sm->len_, 0);
-
-        if ((int)sm->len_ != sent_bytes)
-        {
-            /* post error handle. */
-        }
-    }
-}
-
-
-void t2u_session_send_u_connect(t2u_session *session)
-{
-    t2u_rule *rule = (t2u_rule *) session->rule_;
-    size_t name_len = strlen(rule->service_);
-
-    t2u_message *mess = (t2u_message *) malloc (sizeof(t2u_message) + name_len + 1);
-    session_message sm;
-    memset(&sm, 0, sizeof(session_message));
-
-    assert(NULL != mess);
-
-    if (2 == session->status_)
-    {
-        free(mess);
+        LOG_(1, "data not confirmed, disable event for session: %p", session);
+        /* data is not confirmed, disable the event */
+        event_del(ev->event_);
+        session->saved_event_ = ev->event_;
         return;
     }
-    
-    /* remove message */
-    t2u_session_message_init(session);
 
-    mess->magic_ = htonl(T2U_MESS_MAGIC);
-    mess->version_ = htons(0x0001);
-    mess->oper_ = htons(connect_request);
-    mess->handle_ = htonl(session->handle_);
+    buff = (char *)malloc(T2U_PAYLOAD_MAX);
+    assert(NULL != buff);
 
-    session->send_seq_ = 0; /* always using 0 as start seq */
-    mess->seq_ = htonl(session->send_seq_);
-    sprintf(mess->payload, rule->service_);
+    read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
 
-    sm.data_ = mess;
-    sm.len_ = sizeof(t2u_message) + name_len + 1;
-    sm.seq_ = 0;
+    if (read_bytes > 0)
+    {
+    }
+#if defined _MSC_VER
+    else if ((int)read_bytes == 0 ||
+        ((read_bytes < 0) && (WSAGetLastError() != WSAEWOULDBLOCK))
+#else
+    else if ((int)read_bytes == 0 ||
+        ((read_bytes < 0) && (errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN)))
+#endif
+    {
+        LOG_(3, "recv failed on socket %d, read_bytes(%d). ",
+            session->sock_, read_bytes);
 
-    t2u_session_send_u_mess(session, &sm);
-    
-    free(mess);
+        /* error */
+        free(buff);
+
+        /* close session */
+        delete_session_later(session);
+        return;
+    }
+    else
+    {
+        LOG_(3, "recv failed on socket %d, blocked ...",
+            session->sock_);
+
+        free(buff);
+        return;
+    }
+
+    /* send the data */
+    #warning "send the data out"
+
+    return;
 }
 
-void t2u_session_send_u_connect_response(t2u_session *session, char *connect_message)
+void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data *mdata)
 {
-    uint32_t *phandle = NULL;
-    session_message sm;
-    sm.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
-    assert(NULL != sm.data_);
+    t2u_rule *rule = session->rule_;
+    t2u_context *context = rule->context_;
+    t2u_runner *runner = context->runner_;
 
-    sm.len_ = sizeof(t2u_message) + sizeof(uint32_t);
+    uint32_t pair_handle = *((uint32_t *)(void *)mdata->payload);
+    if (pair_handle > 0)
+    {
+        session->status_ = 2;
+        session->pair_handle_ = pair_handle;
 
-    sm.data_->magic_ = htonl(T2U_MESS_MAGIC);
-    sm.data_->version_ = htons(0x0001);
-    sm.data_->oper_ = htons(connect_response);
-    sm.data_->handle_ = htonl(((t2u_message *)connect_message)->handle_);     /* response using the handle from request */
-    sm.data_->seq_ = htonl(((t2u_message *)connect_message)->seq_);           /* response using the seq from request */
+        // clear events
+        event_del(session->ev_->event_);
+        free(session->ev_->event_);
+        session->ev_->event_ = NULL;
 
-    phandle = (void *)sm.data_->payload;
+        // move connecting -> connected
+        rbtree_remove(rule->connecting_sessions_, &session->handle_);
+        rbtree_insert(rule->sessions_, &session->handle_, session);
+
+        // binding new events
+        session->ev_->event_ = event_new(runner->base_, session->sock_, 
+            EV_READ|EV_PERSIST, process_tcp_cb_, session->ev_);
+        assert(NULL != session->ev_->event_);
+
+        event_add(session->ev_->event_, NULL);
+
+    }
+    else
+    {
+        t2u_delete_connecting_session(session);
+    }
+}
+
+
+static void session_connect_response_(t2u_session *session)
+{
+    t2u_rule *rule = (t2u_rule *) session->rule_;
+    t2u_message_data *mdata = (t2u_message_data *) malloc(sizeof(t2u_message_data) + sizeof(uint32_t));
+    uint32_t *phandle;
+
+    mdata->magic_ = htonl(T2U_MESS_MAGIC);
+    mdata->version_ = htons(0x0001);
+    mdata->oper_ = htons(connect_response);
+    mdata->handle_ = htonl(session->pair_handle_);
+
+    session->send_seq_ = 0; /* always using 0 as start seq */
+    mdata->seq_ = htonl(session->send_seq_);
+    phandle = (void *)mdata->payload;
+
     if (session->status_ == 2)
     {
-        *phandle = htonl(session->handle_);     /* payload is new handle in server side */
+        *phandle = htonl(session->handle_);
     }
     else
     {
         *phandle = htonl(0);
     }
 
-    t2u_session_send_u_mess(session, &sm);
+    t2u_send_message_data(rule->context_, mdata);
 
-    free(sm.data_);
+    free(mdata);
 }
 
-
-session_message *t2u_session_send_u_data(t2u_session *session, char *data, size_t length)
+static void session_connect_(t2u_session *session)
 {
+    t2u_rule *rule = (t2u_rule *) session->rule_;
+    size_t name_len = strlen(rule->service_);
 
-    t2u_message *mess = NULL;
-    session_message *sm = NULL;
+    if (rule->mode_ == forward_client_mode)
+    {
+        /* translate tcp->udp */
+       
+        t2u_message_data *mdata = (t2u_message_data *) malloc(sizeof(t2u_message_data) + name_len + 1);
 
-    assert (2 == session->status_);
+        mdata->magic_ = htonl(T2U_MESS_MAGIC);
+        mdata->version_ = htons(0x0001);
+        mdata->oper_ = htons(connect_request);
+        mdata->handle_ = htonl(session->handle_);
 
-    mess = (t2u_message *) malloc (sizeof(t2u_message) + length);
-    sm = (session_message *) malloc (sizeof(session_message));
-    assert(NULL != mess);
-    assert(NULL != sm);
-    memset(sm, 0, sizeof(session_message));
+        session->send_seq_ = 0; /* always using 0 as start seq */
+        mdata->seq_ = htonl(session->send_seq_);
+        strcpy(mdata->payload, rule->service_);
 
-    sm->len_ = sizeof(t2u_message) + length;
-    sm->data_ = mess;
-    sm->send_retries_ = 0;
-    sm->fast_retry_ = 0;
+        t2u_send_message_data(rule->context_, mdata);
 
-    mess->magic_ = htonl(T2U_MESS_MAGIC);
-    mess->version_ = htons(0x0001);
-    mess->oper_ = htons(data_request);
-    mess->handle_ = htonl(session->handle_);
-    mess->seq_ = htonl(++session->send_seq_);
-    sm->seq_ = session->send_seq_;
-    memcpy(mess->payload, data, length);
+        free(mdata);
+    }
+    else
+    {
+        /* connect, async */
+        int ret = connect(session->sock_, (struct sockaddr *)&rule->conn_addr_, sizeof(rule->conn_addr_));
 
-    t2u_session_send_u_mess(session, sm);
-    
-    return sm;
+#if defined _MSC_VER
+        if ((ret == -1) && (WSAGetLastError() != WSAEWOULDBLOCK))
+#else
+        if ((ret == -1) && (errno != EINPROGRESS))
+#endif
+        {
+            LOG_(3, "connect socket failed");
+            closesocket(session->sock_);
+            session->sock_ = 0;
+            return;
+        }      
+    }
 }
 
-void t2u_session_send_u_data_response(t2u_session *session, t2u_message *mess, uint32_t error)
+static void session_connect_success_cb_(evutil_socket_t sock, short events, void *arg)
 {
-    session_message sm;
-    uint32_t *perr = NULL;
-    sm.data_ = (t2u_message *) malloc (sizeof(t2u_message) + sizeof(uint32_t));
-    assert(NULL != sm.data_);
+    int error = 0;
+    unsigned int len = sizeof(int);
+    t2u_event *ev = (t2u_event *)arg;
+    t2u_runner *runner = ev->runner_;
+    t2u_rule *rule = ev->rule_;
+    t2u_session *session = ev->session_;
 
-    sm.len_ = sizeof(t2u_message) + sizeof(uint32_t);
+    (void)events;
 
-    sm.data_->magic_ = htonl(T2U_MESS_MAGIC);
-    sm.data_->version_ = htons(0x0001);
-    sm.data_->oper_ = htons(data_response);
-    sm.data_->handle_ = htonl(mess->handle_);   /* response using the handle from request */
-    sm.data_->seq_ = htonl(mess->seq_);         /* response using the seq from request */
-    sm.seq_ = mess->seq_;
-    
-    perr = (void *)sm.data_->payload;
-    *perr = htonl(error);                                          /* error */
+    getsockopt(sock, SOL_SOCKET, SO_ERROR, (void *)&error, &len);
 
-    t2u_session_send_u_mess(session, &sm);
+    if (0 == error)
+    {
+        LOG_(1, "connect for session: %lu success.", (unsigned long)session->handle_);
+        session->status_ = 2;
 
-    free(sm.data_);
+        // clear events
+        event_del(ev->event_);
+        free(ev->event_);
+        ev->event_ = NULL;
+
+        free(ev->extra_event_);
+        ev->extra_event_ = NULL;
+
+        // send response
+        session_connect_response_(session);
+
+        // move connecting -> connected
+        rbtree_remove(rule->connecting_sessions_, &session->handle_);
+        rbtree_insert(rule->sessions_, &session->handle_, session);
+
+        // binding new events
+        ev->event_ = event_new(runner->base_, session->sock_, 
+            EV_READ|EV_PERSIST, process_tcp_cb_, ev);
+        assert(NULL != ev->event_);
+
+        event_add(ev->event_, NULL);
+
+    }
+    else
+    {
+        LOG_(2, "connect for session: %lu failed.", (unsigned long)session->handle_);
+        t2u_delete_connecting_session(session);
+    }
 }
+
+static void session_connect_timeout_cb_(evutil_socket_t sock, short events, void *arg)
+{
+    t2u_event *ev = (t2u_event *)arg;
+    t2u_session *session = ev->session_;
+    t2u_rule *rule = ev->rule_;
+    t2u_context *context = ev->context_;
+
+    (void) sock;
+    (void) events;
+
+    if (++session->connect_retries_ >= context->uretries_)
+    {
+        LOG_(2, "timeout for accept session connection, session: %lu, retry: %lu, delay: %lums",
+            (unsigned long)session->handle_, context->uretries_, context->utimeout_);
+        
+        /* timeout */
+        t2u_delete_connecting_session(session);
+    }
+    else
+    {
+        /* readd the timer */
+        struct timeval t;
+        t.tv_sec = context->utimeout_ / 1000;
+        t.tv_usec = (context->utimeout_ % 1000) * 1000;
+
+        event_add(session->ev_->event_, &t);
+
+        /* do connect again, if in client mode. */
+        if (forward_client_mode == rule->mode_)
+        {
+            session_connect_(session);
+        }
+    }
+}
+
+
+t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pair_handle)
+{
+    struct timeval t;
+    t2u_context *context = rule->context_;
+    t2u_runner *runner = context->runner_;
+    
+    t2u_session *session = (t2u_session *) malloc(sizeof(t2u_session));
+    assert(NULL != session);
+    memset(session, 0, sizeof(t2u_session));
+
+    session->handle_ = (uint32_t)sock;
+    session->pair_handle_ = pair_handle;
+    session->rule_ = rule;
+    session->sock_ = sock;
+
+    session->status_ = 1;
+
+    session->send_mess_ = rbtree_init(compare_uint32_ptr);
+    session->recv_mess_ = rbtree_init(compare_uint32_ptr);
+
+    LOG_(1, "create new session %p(%lu)", session, (unsigned long)session->handle_);
+
+    session->ev_ = t2u_event_new();
+    session->ev_->runner_ = runner;
+    session->ev_->context_ = context;
+    session->ev_->rule_ = rule;
+    session->ev_->session_ = session;
+    session->ev_->event_ = evtimer_new(runner->base_, session_connect_timeout_cb_, session->ev_);
+    assert (NULL != session->ev_->event_);
+    
+    t.tv_sec = context->utimeout_ / 1000;
+    t.tv_usec = (context->utimeout_ % 1000) * 1000;
+    event_add(session->ev_->event_, &t);
+
+    if (forward_server_mode == rule->mode_)
+    {
+        /* extra event for server mdoe */
+        session->ev_->extra_event_ = event_new(runner->base_, sock, EV_WRITE, session_connect_success_cb_, session->ev_);
+        event_add(session->ev_->extra_event_, NULL);
+    }
+
+    /* add session to rule, using self handle as key */
+    rbtree_insert(rule->connecting_sessions_, &session->handle_, session);
+
+    /* connecting */
+    session_connect_(session);
+
+    LOG_(1, "add connecting session: %p to rule: %p", session, rule);
+
+    return session;
+}
+
+
+void t2u_delete_connecting_session(t2u_session *session)
+{
+    t2u_event_delete(session->ev_);
+    session->ev_ = NULL;
+
+    /* close socket */
+    if (session->sock_)
+    {
+        closesocket(session->sock_);
+        session->sock_ = 0;
+    }
+
+    /* delete from rule */
+    rbtree_remove(session->rule_->connecting_sessions_, session);
+
+    /* free */
+    free(session);
+}
+
+void t2u_delete_connected_session(t2u_session *session)
+{
+    t2u_event_delete(session->ev_);
+    session->ev_ = NULL;
+
+    /* close socket */
+    if (session->sock_)
+    {
+        closesocket(session->sock_);
+        session->sock_ = 0;
+    }
+
+    /* delete from rule */
+    rbtree_remove(session->rule_->sessions_, session);
+
+    /* free */
+    free(session);
+}
+
+
+
+
+static t2u_session *find_session_in_rule(t2u_rule *rule, uint32_t handle, int ispair)
+{
+    if (ispair)
+    {
+        /* sessions_ key using pair_handle */
+        return rbtree_lookup(rule->sessions_, &handle);
+    }
+    else
+    {
+        /* connecting_sessions_ using self handle */
+        return rbtree_lookup(rule->connecting_sessions_, &handle);
+    }
+}
+
+static t2u_session *find_session_in_context_walk(rbtree_node *node, uint32_t handle, int ispair)
+{
+    t2u_session *session = NULL;
+    if (node)
+    {
+        session = find_session_in_context_walk(node->left, handle, ispair);
+        if (!session)
+        {
+            t2u_rule *rule = node->data;
+            session = find_session_in_rule(rule, handle, ispair);
+
+            if (!session)
+            {
+                session = find_session_in_context_walk(node->right, handle, ispair);
+            }
+        }
+    }
+
+    return session;
+}
+
+t2u_session *find_session_in_context(t2u_context *context, uint32_t handle, int ispair)
+{
+    return find_session_in_context_walk(context->rules_->root, handle, ispair);
+}
+
+
+
+
+
