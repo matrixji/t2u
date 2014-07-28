@@ -68,9 +68,23 @@ forward_context create_forward(sock_t s);
 void free_forward(forward_context c);
 
 
-#define CTX_UDP_TIMEOUT (0x01)      // timeout for udp packet wait response(ms). 10 - 30,000. default 500.
-#define CTX_UDP_RETRIES (0x02)      // retries for resent udp packets.           0 - 20, default 3.
-#define CTX_UDP_SLIDEWINDOW (0x03)  // slide window for udp packets.             1 - 64, default 16.
+// timeout for udp packet wait response(ms). 10 - 30,000. default 500.
+#define CTX_UDP_TIMEOUT (0x01)
+
+// retries for resent udp packets. 0 - 20, default 3.
+#define CTX_UDP_RETRIES (0x02)
+
+// slide window for udp packets. 1 - 64, default 16.
+#define CTX_UDP_SLIDEWINDOW (0x03)
+
+// udp debug option: simulate a delay, ms. default: 0.
+#define CTX_UDP_DEBUG_DELAY (0xf0)
+
+// udp debug option: simulate a packet loss. 1-10000. default: 0
+#define CTX_UDP_DEBUG_PACKET_LOSS (0xf1)
+
+// udp debug option: simulate bandwidth in bps. default: 0
+#define CTX_UDP_DEBUG_BANDWIDTH (0xf2)
 
 /*
  * forward context option
@@ -98,6 +112,9 @@ void set_unknown_callback(void (*unknown_cb)(forward_context c, const char *buff
  */
 void set_error_callback(void (*error_cb)(forward_context c, forward_rule rule, int error_code, char *error_message));
 
+/* log callback */
+/* level: 0: debug, 1: info, 2: warning, 3: error */
+void set_log_callback(void (*cb)(int level, const char *mess));
 
 /* add a forward rule, return NULL if failed. */
 forward_rule add_forward_rule (forward_context c,       /* context */
@@ -111,13 +128,8 @@ forward_rule add_forward_rule (forward_context c,       /* context */
 void del_forward_rule (forward_rule r);
 
 
-/* log callback */
-/* level: 0: debug, 1: info, 2: warning, 3: error */
-void set_log_callback(void (*cb)(int level, const char *mess));
-
-
 /* debug current internal variables */
-/* void debug_dump(int fd); */
+void debug_dump(FILE *fp);
 
 #ifdef __cplusplus
 } ;
