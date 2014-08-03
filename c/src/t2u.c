@@ -72,7 +72,7 @@ void free_forward(forward_context c)
     if (g_runner && ((!g_runner->contexts_) || (!g_runner->contexts_->root)))
     {
         /* the runner is already stopped and no events bind. */
-        t2u_runner_delete(g_runner);
+        t2u_delete_runner(g_runner);
         g_runner = NULL;
     }
     return;

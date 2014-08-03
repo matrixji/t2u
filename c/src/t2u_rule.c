@@ -33,6 +33,7 @@ void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
     oldsession = (t2u_session *)rbtree_lookup(rule->sessions_, &pair_handle);
     if (oldsession)
     {
+        LOG_(2, "delete old session:%p", oldsession);
         t2u_delete_connected_session(oldsession);
     }
 
@@ -53,7 +54,7 @@ void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
 }
 
 
-static void rule_process_accept_callback(evutil_socket_t sock, short events, void *arg)
+static void rule_process_accept_cb_(evutil_socket_t sock, short events, void *arg)
 {
     struct sockaddr_in client_addr;
     unsigned int client_len = sizeof(client_addr);
@@ -81,20 +82,24 @@ static void add_rule_cb_(t2u_runner *runner, void *arg)
     t2u_rule *rule = (t2u_rule *)arg;
     t2u_context *context = (t2u_context *) rule->context_;
 
-    rule->ev_listen_ = (t2u_event *) malloc(sizeof(t2u_event));
-    assert(NULL != rule->ev_listen_);
+    if (rule->mode_ == forward_client_mode)
+    {
+        rule->ev_listen_ = (t2u_event *)malloc(sizeof(t2u_event));
+        assert(NULL != rule->ev_listen_);
 
-    memset(rule->ev_listen_, 0, sizeof(t2u_event));
+        memset(rule->ev_listen_, 0, sizeof(t2u_event));
 
-    rule->ev_listen_->runner_ = runner;
-    rule->ev_listen_->context_ = rule->context_ ;
-    rule->ev_listen_->rule_ = rule;
+        rule->ev_listen_->runner_ = runner;
+        rule->ev_listen_->context_ = rule->context_;
+        rule->ev_listen_->rule_ = rule;
 
-    rule->ev_listen_->event_ = event_new(runner->base_, rule->listen_sock_, 
-        EV_READ|EV_PERSIST, rule_process_accept_callback, rule->ev_listen_);
-    assert(NULL != rule->ev_listen_->event_);
+        rule->ev_listen_->event_ = event_new(runner->base_, rule->listen_sock_,
+            EV_READ | EV_PERSIST, rule_process_accept_cb_, rule->ev_listen_);
+        assert(NULL != rule->ev_listen_->event_);
 
-    event_add(rule->ev_listen_->event_, NULL);
+        event_add(rule->ev_listen_->event_, NULL);
+    }
+
     rbtree_insert(context->rules_, rule->service_, rule);
 }
 
@@ -174,7 +179,7 @@ t2u_rule *t2u_add_rule(t2u_context *context, forward_mode mode, const char *serv
     assert (NULL != rule->service_);
 
 #ifdef _MSC_VER
-    strcpy(rule->service_, service);
+    strcpy_s(rule->service_, strlen(service)+1, service);
 #else
     strcpy(rule->service_, service);
 #endif
@@ -209,9 +214,9 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
     while (rule->sessions_->root)
     {
         rbtree_node *node = rule->sessions_->root;
-        void *remove = node->key;
+        void *remove = node->data;
         
-        t2u_delele_session(remove);
+        t2u_delete_connected_session(remove);
     }
 
     /* remove sessions */
@@ -220,7 +225,7 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
         rbtree_node *node = rule->connecting_sessions_->root;
         void *remove = node->key;
         
-        t2u_delele_session(remove);
+        t2u_delete_connecting_session(remove);
     }
     
     /* remove the tree */
@@ -231,11 +236,11 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
     rule->connecting_sessions_ = NULL;
 
     /* remove the events */
-    t2u_event_delete(rule->ev_listen_);
+    t2u_delete_event(rule->ev_listen_);
     rule->ev_listen_ = NULL;
 
     /* remove from context */
-    rbtree_remove(context->rules_, rule);
+    rbtree_remove(context->rules_, rule->service_);
 
     LOG_(1, "delete the rule %p, name: %s from context: %p", 
         rule, rule->service_, context);

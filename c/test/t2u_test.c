@@ -18,22 +18,6 @@ typedef int socklen_t;
 
 #include "t2u.h"
 
-
-/**************************************************************************
- * this is a small demo
- *
- * it will serv local http server (80) on other port (1080),
- *     and serv local ssh server (22) on other port (2222),
- * t2u work as a udp tunnel.
- *
- *
- * client -> tcp:1080 on t2u:client -> udp .. udp -> t2u:server -> tcp:80
- * client -> tcp:2222 on t2u:client -> udp .. udp -> t2u:server -> tcp:22
- *
- *
- **************************************************************************
- */
-
 void test_log(int level, const char *mess)
 {
     if (level >= 0)
@@ -65,9 +49,9 @@ int main(int argc, char *argv[])
         usage(argv[0]);
     }
 
-#ifdef WIN32
+#ifdef _MSC_VER
     WSADATA wsaData;
-    WSAStartup(MAKEWORD(1,2), &wsaData);
+    WSAStartup(MAKEWORD(1, 2), &wsaData);
 #endif
 
     if (strcmp(argv[1], "server") == 0)
@@ -89,7 +73,11 @@ int main(int argc, char *argv[])
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock == -1)
     {
-        fprintf(stderr, "socket failed. %s\n", strerror(errno));
+#ifdef _MSC_VER
+        fprintf(stderr, "socket failed. %d\n", WSAGetLastError());
+#else
+        fprintf(stderr, "socket failed. %d\n", errno);
+#endif
         return 1;
     }
 
@@ -101,17 +89,25 @@ int main(int argc, char *argv[])
 
         if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
         {
-            fprintf(stderr, "bind failed. %s\n", strerror(errno));
+#ifdef _MSC_VER
+            fprintf(stderr, "bind failed. %d\n", WSAGetLastError());
+#else
+            fprintf(stderr, "bind failed. %d\n", errno);
+#endif
             return 1;
         }
 
         char buff[64];
         socklen_t len = sizeof(addr);
         recvfrom(sock, buff, sizeof(buff), 0, (struct sockaddr *)&addr, &len);
-        
+
         if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
         {
-            fprintf(stderr, "connect failed. %s\n", strerror(errno));
+#ifdef _MSC_VER
+            fprintf(stderr, "connect failed. %d\n", WSAGetLastError());
+#else
+            fprintf(stderr, "connect failed. %d\n", errno);
+#endif
             return 1;
         }
         send(sock, "hello\0", 6, 0);
@@ -123,7 +119,11 @@ int main(int argc, char *argv[])
 
         if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
         {
-            fprintf(stderr, "connect failed. %s\n", strerror(errno));
+#ifdef _MSC_VER
+            fprintf(stderr, "connect failed. %d\n", WSAGetLastError());
+#else
+            fprintf(stderr, "connect failed. %d\n", errno);
+#endif
             return 1;
         }
 
@@ -132,15 +132,15 @@ int main(int argc, char *argv[])
         recv(sock, buff, sizeof(buff), 0);
         if (strcmp(buff, "hello") != 0)
         {
-            fprintf(stderr, "hello failed. %s\n", strerror(errno));
+            fprintf(stderr, "hello failed.\n");
             return 1;
         }
     }
-    
+
     /* now using the udp tunnel */
-    context=create_forward(sock);
+    context = create_forward(sock);
     set_context_option(context, 3, 64);
-    
+
     if (isserver)
     {
         rule = add_forward_rule(context, forward_server_mode, argv[3], argv[4], atoi(argv[5]));

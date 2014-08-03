@@ -517,30 +517,3 @@ int  rbtree_remove(struct rbtree* tree,void *key)
         __rbtree_remove(node,tree);
     return 0;
 }
-
-int rbtree_walk_inorder(struct rbtree_node *node, rbtree_walk_proc fn, void *arg)
-{
-    if (node)
-    {
-        if (0 == rbtree_walk_inorder(node->left, fn, arg))
-        {
-            if (0 == fn(node, arg))
-            {
-                return rbtree_walk_inorder(node->right, fn, arg);
-            }
-            else
-            {
-                return -1;
-            }
-        }
-        else
-        {
-            return -1;
-        }
-    }
-    else
-    {
-        return 0;
-    }
-}
-

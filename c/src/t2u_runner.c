@@ -46,9 +46,9 @@
     LOG_(0, "enter run loop for runner: %p", (void *)runner);
     
     /*  run loop */
-    event_base_dispatch(runner->base_);
+    int r = event_base_dispatch(runner->base_);
 
-    LOG_(0, "end run loop for runner: %p", (void *)runner);
+    LOG_(0, "end run loop for runner: %p, ret: %d", (void *)runner, r);
 #if defined __GNUC__
     return NULL;
 #elif defined _MSC_VER
@@ -63,7 +63,7 @@ static void t2u_runner_control_process(t2u_runner *runner, control_data *cdata)
     cdata->func_(runner, cdata->arg_);
 }
 
-static void t2u_runner_control_callback(evutil_socket_t sock, short events, void *arg)
+static void runner_control_cb_(evutil_socket_t sock, short events, void *arg)
 {
 
     t2u_runner *runner = (t2u_runner *)arg;
@@ -122,7 +122,7 @@ t2u_event *t2u_event_new()
     return r;
 }
 
-void t2u_event_delete(t2u_event *ev)
+void t2u_delete_event(t2u_event *ev)
 {
     if (ev)
     {
@@ -179,7 +179,11 @@ t2u_runner * t2u_runner_new()
 
         if (bind(runner->sock_[0], (struct sockaddr *)&addr_c, sizeof(addr_c)) == -1)
         {
-            LOG_(0, "socket bind failed. %s\n", strerror(errno));
+#if defined _MSC_VER
+            LOG_(0, "socket bind failed. %d\n", WSAGetLastError());
+#else
+            LOG_(0, "socket bind failed. %d\n", errno);
+#endif
         }
         else
         {
@@ -197,13 +201,16 @@ t2u_runner * t2u_runner_new()
     assert(0 == ret);
 
     /* the event handler for control message processing. */
-    runner->control_event_ = event_new(runner->base_, runner->sock_[0], EV_READ|EV_PERSIST, t2u_runner_control_callback, runner);
+    runner->control_event_ = event_new(runner->base_, runner->sock_[0], EV_READ | EV_PERSIST, runner_control_cb_, runner);
     assert(NULL != runner->control_event_);
 
     ret = event_add(runner->control_event_, NULL);
     assert(0 == ret);
 
     LOG_(0, "create new runner: %p", (void *)runner);
+
+    /* contexts */
+    runner->contexts_ = rbtree_init(NULL);
 
     /* run the runner */
     t2u_mutex_lock(&runner->mutex_);
@@ -270,6 +277,9 @@ void t2u_delete_runner(t2u_runner *runner)
     free(runner);
 }
 
-
+int t2u_runner_has_context(t2u_runner *runner)
+{
+    return (runner->contexts_->root != NULL);
+}
 
 

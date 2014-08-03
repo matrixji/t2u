@@ -14,7 +14,7 @@ static int compare_name(void *a, void *b)
     return strcmp((char *)a, (char *)b);
 }
 
-static void context_process_udp_callback(evutil_socket_t sock, short events, void *arg)
+static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
 {
     int recv_bytes;
     char *buff = (char *) malloc(T2U_MESS_BUFFER_MAX);
@@ -39,7 +39,7 @@ static void context_process_udp_callback(evutil_socket_t sock, short events, voi
     mdata->handle_ = ntohl(mdata->handle_);
     mdata->seq_ = ntohl(mdata->seq_);
 
-    if (((int)recv_bytes < (int)sizeof(t2u_message)) ||
+    if (((int)recv_bytes < (int)sizeof(t2u_message_data)) ||
         (mdata->magic_ != T2U_MESS_MAGIC) ||
         (mdata->version_ != 0x0001))
     {
@@ -66,7 +66,7 @@ static void context_process_udp_callback(evutil_socket_t sock, short events, voi
             }
             else
             {
-
+                LOG_(2, "no rule match the service: %s", service);
             }
             free(buff);
         }
@@ -81,23 +81,68 @@ static void context_process_udp_callback(evutil_socket_t sock, short events, voi
             }
             else
             {
-
+                LOG_(2, "no session match the handle: %d", mdata->handle_);
             }
             free(buff);
         }
         break;
     case data_request:
         {
+            t2u_session *session = find_session_in_context(context, mdata->handle_, 1);
+            if (session)
+            {
+                t2u_session_handle_data_request(session, mdata, recv_bytes);
+            }
+            else
+            {
+                LOG_(2, "no session match the handle: %d", mdata->handle_);
+            }
             free(buff);
         }    
         break;
     case data_response:
         {
+            t2u_session *session = find_session_in_context(context, mdata->handle_, 1);
+            if (session)
+            {
+                /* find it in send queue */
+                t2u_message *message = rbtree_lookup(session->send_mess_, &mdata->seq_);
+                if (message)
+                {
+                    t2u_message_handle_data_response(message, mdata);
+                }
+                else
+                {
+                    LOG_(2, "no message match the seq: %d", mdata->seq_);
+                }
+            }
+            else
+            {
+                LOG_(2, "no session match the handle: %d", mdata->handle_);
+            }
             free(buff);
         }
         break;
     case retrans_request:
         {
+            t2u_session *session = find_session_in_context(context, mdata->handle_, 1);
+            if (session)
+            {
+                /* find it in send queue */
+                t2u_message *message = rbtree_lookup(session->send_mess_, &mdata->seq_);
+                if (message)
+                {
+                    t2u_message_handle_retrans_request(message, mdata);
+                }
+                else
+                {
+                    LOG_(2, "no message match the seq: %d", mdata->seq_);
+                }
+            }
+            else
+            {
+                LOG_(2, "no session match the handle: %d", mdata->handle_);
+            }
             free(buff);
         }
         break;
@@ -121,7 +166,7 @@ static void add_context_cb_(t2u_runner *runner, void *arg)
     context->ev_udp_->context_ = context;
 
     context->ev_udp_->event_ = event_new(runner->base_, context->sock_, 
-        EV_READ|EV_PERSIST, context_process_udp_callback, context->ev_udp_);
+        EV_READ|EV_PERSIST, process_udp_cb_, context->ev_udp_);
     assert(NULL != context->ev_udp_->event_);
 
     event_add(context->ev_udp_->event_, NULL);
@@ -174,7 +219,7 @@ static void delete_context_cb_(t2u_runner *runner, void *arg)
     context->rules_ = NULL;
 
     /* remove the events */
-    t2u_event_delete(context->ev_udp_);
+    t2u_delete_event(context->ev_udp_);
     context->ev_udp_ = NULL;
 
     /* remove from runner */
@@ -196,4 +241,22 @@ void t2u_delete_context(t2u_context *context)
     cdata.arg_ = context;
     t2u_runner_control(context->runner_, &cdata);
     return;
+}
+
+void t2u_send_message_data(t2u_context *context, char *data, size_t size)
+{
+#if 1
+    send(context->sock_, data, size, 0);
+#else
+    int a = rand();
+    if (a % 100)
+    {
+        send(context->sock_, data, size, 0);
+    }
+    else
+    {
+        t2u_message_data *md = data;
+        LOG_(1, "xxxxxxxxxxxxxxx drop. %d", ntohl(md->seq_));
+    }
+#endif
 }

@@ -1,9 +1,9 @@
 #ifndef __t2u_internal_h__
 #define __t2u_internal_h__
 
+#include <time.h>
 #include "t2u_thread.h"
 #include "t2u_rbtree.h"
-
 
 #ifdef __GNUC__
 #include <netinet/in.h>
@@ -47,22 +47,34 @@ unknown_callback get_unknown_func_();
 #define LOG_(level, ...) do { \
     if (get_log_func_()) { \
         char mess_[1024]; \
-        int n = sprintf_s(mess_, sizeof(mess_), "[%s:%d] ", __FILE__, __LINE__); \
-        n += sprintf(&mess_[n], sizeof(mess_)-n, ##__VA_ARGS__); \
+        time_t t; \
+        struct tm tmp; \
+        t = time(NULL); \
+        localtime_s(&tmp, &t); \
+        char ts[64]; \
+        strftime(ts, sizeof(ts), "%y-%m-%d %H:%M:%S", &tmp); \
+        int n = sprintf_s(mess_, sizeof(mess_), "[%s] [%s:%d] ", ts, __FILE__, __LINE__); \
+        n += sprintf_s(&mess_[n], sizeof(mess_)-n, ##__VA_ARGS__); \
         if (n < (int)sizeof(mess_) - 2) { \
             if (mess_[n-1] != '\n') {\
                 mess_[n++] = '\n'; \
                 mess_[n++] = '\0'; \
-            } \
+                                    } \
             get_log_func_() (level, mess_) ; \
-        } \
-    } \
+                        } \
+            } \
 } while (0)
 #else
 #define LOG_(level, fmt...) do { \
     if (get_log_func_()) { \
         char mess_[1024]; \
-        int n = sprintf(mess_, "[%s:%d] ", __FILE__, __LINE__); \
+        time_t t; \
+        struct tm tmp; \
+        t = time(NULL); \
+        localtime_r(&t, &tmp); \
+        char ts[64]; \
+        strftime(ts, sizeof(ts), "%y-%m-%d %H:%M:%S", &tmp); \
+        int n = sprintf(mess_, "[%s] [%s:%d] ", ts, __FILE__, __LINE__); \
         n += sprintf(&mess_[n], ##fmt); \
         if (n < (int)sizeof(mess_) - 2) { \
             if (mess_[n-1] != '\n') {\
@@ -119,12 +131,12 @@ typedef struct t2u_message_data_
 
 typedef struct t2u_message_
 {
-    struct t2u_session *session_;   /* parent session */
+    struct t2u_session_ *session_;  /* parent session */
     t2u_message_data *data_;        /* message to send or recv */
     size_t len_;                    /* length of message */
     uint32_t seq_;                  /* session based seq */
     unsigned long send_retries_;    /* retry send count */
-    t2u_event timeout_ev_;          /* timeout event */
+    t2u_event *ev_timeout_;         /* timeout event */
 } t2u_message;
 
 /* session */
@@ -135,15 +147,15 @@ typedef struct t2u_session_
     uint32_t handle_;                       /* handle */
     uint32_t pair_handle_;                  /* remote handle */
     int status_;                            /* 0 for non, 1 for connecting, 2 for establish, 3 for closing */
-    int send_buffer_count_;
+    uint32_t send_buffer_count_;
     uint32_t send_seq_;                     /* send seq */
     rbtree *send_mess_;                     /* send message list */
-    int recv_buffer_count_;
+    uint32_t recv_buffer_count_;
     uint32_t recv_seq_;                     /* recv seq */
     rbtree *recv_mess_;                     /* recv message list */
     unsigned long connect_retries_;         /* retry count */
     t2u_event *ev_;                         /* the connect,data event */
-    struct event* saved_event_;             /* disabled event */
+    uint32_t retry_seq_;                    /* retry seq */
 } t2u_session;
 
 typedef struct t2u_rule_
@@ -167,7 +179,7 @@ typedef struct t2u_context_
 
     unsigned long utimeout_;        /* timeout for message */
     unsigned long uretries_;        /* retries for message */
-    int udp_slide_window_;          /* slide window for udp packets */
+    unsigned long udp_slide_window_;/* slide window for udp packets */
 
     int debug_bandwidth_;           /* simulate bandwidth in bit/second */
     int debug_latency_;
@@ -202,51 +214,12 @@ typedef struct control_data_
     int error_;     /* callback error code */
 } control_data;
 
-/* functins */
 
-t2u_event *t2u_event_new();
-void t2u_event_delete(t2u_event *ev);
-
-/* runner */
-t2u_runner *t2u_runner_new();
-
-void t2u_runner_delete(t2u_runner *runner);
-
-void t2u_runner_control(t2u_runner *runner, control_data *cdata);
-
-/* context */
-t2u_context * t2u_add_context(t2u_runner *runner, sock_t sock);
-void t2u_delete_context(t2u_context *context);
-
-void t2u_send_message_data(t2u_context *context, t2u_message_data *mdata);
-
-/* rule */
-t2u_rule *t2u_add_rule(t2u_context *context, forward_mode mode, const char *service, const char *addr, unsigned short port);
-void t2u_delete_rule(t2u_rule *rule);
-
-void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata);
-
-/* session */
-t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pair_handle);
-void t2u_delete_connecting_session(t2u_session *session);
-
-t2u_session *find_session_in_context(t2u_context *context, uint32_t handle, int ispair);
-
-t2u_session *t2u_add_connected_session(t2u_rule *rule, sock_t sock);
-void t2u_delete_connected_session(t2u_session *session);
-
-
-void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data *mdata);
-
-
-t2u_message *t2u_message_new(t2u_session *session);
-
-void t2u_message_delete(t2u_message *message);
-
-
-void t2u_session_assign_pair_handle(t2u_session *session, uint32_t handle);
-
-
+#include "t2u_runner.h"
+#include "t2u_context.h"
+#include "t2u_rule.h"
+#include "t2u_session.h"
+#include "t2u_message.h"
 
 
 #endif /* __t2u_internal_h__ */

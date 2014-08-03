@@ -32,7 +32,7 @@ static int compare_uint32_ptr(void *a, void *b)
 }
 
 
-static void process_tcp_cb_(evutil_socket_t sock, short events, void *arg)
+void t2u_session_process_tcp(evutil_socket_t sock, short events, void *arg)
 {
     t2u_event *ev = (t2u_event *)arg;
     t2u_runner *runner = ev->runner_;
@@ -41,18 +41,16 @@ static void process_tcp_cb_(evutil_socket_t sock, short events, void *arg)
     t2u_session *session = ev->session_;
     char *buff = NULL;
     int read_bytes;
-    struct timeval t;
-    t2u_event *nev;
 
     (void)events;
 
     /* check session is ready for sent */
     if (session->send_buffer_count_ >= context->udp_slide_window_)
     {
-        LOG_(1, "data not confirmed, disable event for session: %p", session);
+        LOG_(1, "data not confirmed, disable event for session: %p %d", session, session->send_buffer_count_);
         /* data is not confirmed, disable the event */
         event_del(ev->event_);
-        session->saved_event_ = ev->event_;
+        ev->event_ = NULL;
         return;
     }
 
@@ -61,25 +59,31 @@ static void process_tcp_cb_(evutil_socket_t sock, short events, void *arg)
 
     read_bytes = recv(sock, buff, T2U_PAYLOAD_MAX, 0);
 
+#if defined _MSC_VER
+    int last_error = WSAGetLastError();
+#else
+    int last_error = errno;
+#endif
+
     if (read_bytes > 0)
     {
     }
 #if defined _MSC_VER
     else if ((int)read_bytes == 0 ||
-        ((read_bytes < 0) && (WSAGetLastError() != WSAEWOULDBLOCK))
+        ((read_bytes < 0) && (last_error != WSAEWOULDBLOCK)))
 #else
     else if ((int)read_bytes == 0 ||
-        ((read_bytes < 0) && (errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN)))
+        ((read_bytes < 0) && (last_error != EINTR && last_error != EWOULDBLOCK && last_error != EAGAIN)))
 #endif
     {
-        LOG_(3, "recv failed on socket %d, read_bytes(%d). ",
-            session->sock_, read_bytes);
+        LOG_(3, "recv failed on socket %d, read_bytes(%d). %d",
+            session->sock_, read_bytes, last_error);
 
         /* error */
         free(buff);
 
-        /* close session */
-        delete_session_later(session);
+        /* close session later, after send_mess_ out */
+        t2u_delete_connected_session_later(session);
         return;
     }
     else
@@ -90,12 +94,13 @@ static void process_tcp_cb_(evutil_socket_t sock, short events, void *arg)
         free(buff);
         return;
     }
-
-    /* send the data */
-    #warning "send the data out"
+    
+    /* build a session message */
+    t2u_add_request_message(session, buff, read_bytes);
 
     return;
 }
+
 
 void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data *mdata)
 {
@@ -104,6 +109,8 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
     t2u_runner *runner = context->runner_;
 
     uint32_t pair_handle = *((uint32_t *)(void *)mdata->payload);
+    pair_handle = ntohl(pair_handle);
+
     if (pair_handle > 0)
     {
         session->status_ = 2;
@@ -120,18 +127,155 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         // binding new events
         session->ev_->event_ = event_new(runner->base_, session->sock_, 
-            EV_READ|EV_PERSIST, process_tcp_cb_, session->ev_);
+            EV_READ | EV_PERSIST, t2u_session_process_tcp, session->ev_);
         assert(NULL != session->ev_->event_);
 
         event_add(session->ev_->event_, NULL);
 
+        LOG_(1, "connect for session: %p with handle: %lu success.", session, (unsigned long)session->handle_);
+
     }
     else
     {
+        LOG_(2, "connect for session: %p with handle: %lu failed.", session, (unsigned long)session->handle_);
         t2u_delete_connecting_session(session);
     }
 }
 
+
+void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mdata, int mdata_len)
+{
+    t2u_rule *rule = session->rule_;
+    t2u_context *context = rule->context_;
+    t2u_runner *runner = context->runner_;
+    t2u_message_data *mdata_resp = NULL;
+    t2u_message_data *this_mdata = mdata;
+
+    uint32_t seq_diff = this_mdata->seq_ - session->recv_seq_;
+
+    if ((seq_diff > context->udp_slide_window_) || (seq_diff <= 1))
+    {
+        mdata_resp = (t2u_message_data *)malloc(sizeof(t2u_message_data) + sizeof(int));
+        mdata_resp->handle_ = htonl(session->pair_handle_);
+        mdata_resp->magic_ = htonl(T2U_MESS_MAGIC);
+        mdata_resp->oper_ = htons(data_response);
+        mdata_resp->seq_ = htonl(this_mdata->seq_);
+        mdata_resp->version_ = htons(1);
+        int *value = (int *)(void *)mdata_resp->payload;
+
+        *value = htonl(0); // success for default.
+
+        if (seq_diff == 1)
+        {
+            while (this_mdata)
+            {
+                uint32_t next_seq = this_mdata->seq_ + 1;
+
+                int r = send(session->sock_, this_mdata->payload, mdata_len - sizeof(t2u_message_data), 0);
+
+                if (this_mdata->seq_ != mdata->seq_)
+                {
+                    // this mdata is copy from recv queue. need to free it.
+                    free(this_mdata);
+                }
+                this_mdata = NULL;
+
+#ifdef _MSC_VER
+                int last_error = WSAGetLastError();
+                if (r == 0 || (r < 0 && last_error != WSAEWOULDBLOCK))
+#else
+                int last_error = errno;
+                if (r == 0 || (r < 0 && last_error != EWOULDBLOCK && last_error != EAGAIN))
+#endif
+                {
+                    // error, response it's error.
+                    *value = htonl(1);
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+
+                    LOG_(2, "send on session: %p failed. error: %d", session, last_error);
+                    t2u_delete_connected_session_later(session);
+                    free(mdata_resp);
+                    return;
+                }
+                else if (r > 0)
+                {
+                    // success.
+                    *value = htonl(0);
+                    session->recv_seq_++;
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+                }
+                else
+                {
+                    // block
+                    *value = htonl(2);
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+                    free(mdata_resp);
+                    return;
+                }
+                
+                this_mdata = rbtree_lookup(session->recv_mess_, &next_seq);
+
+                if (this_mdata)
+                {
+                    // find next. remove it from recv queue
+                    rbtree_remove(session->recv_mess_, &this_mdata->seq_);
+
+                    session->recv_buffer_count_--;
+
+                    // update the response seq.
+                    mdata_resp->seq_ = htonl(this_mdata->seq_);
+                }
+            }
+        }
+        else
+        {
+            t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+        }
+
+        free(mdata_resp);
+    }
+    else
+    {
+        // in range, but not in sequence. push to recv queue.
+        LOG_(1, "we want:%lu but:%lu", session->recv_seq_ + 1, mdata->seq_);
+        this_mdata = NULL;
+        this_mdata = rbtree_lookup(session->recv_mess_, &mdata->seq_);
+        if (!this_mdata && session->recv_buffer_count_ < context->udp_slide_window_)
+        {
+            this_mdata = (t2u_message_data *)malloc(mdata_len);
+            assert(NULL != this_mdata);
+
+            memcpy(this_mdata, mdata, mdata_len);
+            rbtree_insert(session->recv_mess_, &this_mdata->seq_, this_mdata);
+            session->recv_buffer_count_++;
+        }
+
+        // send retrans request
+        t2u_message_data retrans_md; 
+        retrans_md.handle_ = htonl(session->handle_);
+        retrans_md.magic_ = htonl(T2U_MESS_MAGIC);
+        retrans_md.oper_ = htons(retrans_request);
+        retrans_md.version_ = htons(1);
+        
+        uint32_t i = 0;
+        for (i = 0; i < context->udp_slide_window_; i++)
+        {
+            uint32_t test_seq = session->recv_seq_ + 1 + i;
+            if (rbtree_lookup(session->recv_mess_, &test_seq) == NULL)
+            {
+                uint32_t span1 = mdata->seq_ - test_seq;
+                uint32_t span2 = session->retry_seq_ - test_seq;
+
+                if (span1 <= context->udp_slide_window_ && span2 > context->udp_slide_window_)
+                {
+                    retrans_md.seq_ = htonl(test_seq);
+                    t2u_send_message_data(context, (char *)&retrans_md, sizeof(retrans_md));
+                    session->retry_seq_ = test_seq;
+                }
+            }
+        }
+    }
+}
 
 static void session_connect_response_(t2u_session *session)
 {
@@ -157,7 +301,7 @@ static void session_connect_response_(t2u_session *session)
         *phandle = htonl(0);
     }
 
-    t2u_send_message_data(rule->context_, mdata);
+    t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + sizeof(uint32_t));
 
     free(mdata);
 }
@@ -180,9 +324,12 @@ static void session_connect_(t2u_session *session)
 
         session->send_seq_ = 0; /* always using 0 as start seq */
         mdata->seq_ = htonl(session->send_seq_);
+#if defined _MSC_VER
+        strcpy_s(mdata->payload, name_len + 1, rule->service_);
+#else
         strcpy(mdata->payload, rule->service_);
-
-        t2u_send_message_data(rule->context_, mdata);
+#endif
+        t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + name_len + 1);
 
         free(mdata);
     }
@@ -220,7 +367,6 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
 
     if (0 == error)
     {
-        LOG_(1, "connect for session: %lu success.", (unsigned long)session->handle_);
         session->status_ = 2;
 
         // clear events
@@ -240,15 +386,17 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
 
         // binding new events
         ev->event_ = event_new(runner->base_, session->sock_, 
-            EV_READ|EV_PERSIST, process_tcp_cb_, ev);
+            EV_READ | EV_PERSIST, t2u_session_process_tcp, ev);
         assert(NULL != ev->event_);
 
         event_add(ev->event_, NULL);
 
+        LOG_(1, "connect for session: %p with handle: %lu success.", session, (unsigned long)session->handle_);
+
     }
     else
     {
-        LOG_(2, "connect for session: %lu failed.", (unsigned long)session->handle_);
+        LOG_(2, "connect for session: %p with handle: %lu failed.", session, (unsigned long)session->handle_);
         t2u_delete_connecting_session(session);
     }
 }
@@ -344,7 +492,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pa
 
 void t2u_delete_connecting_session(t2u_session *session)
 {
-    t2u_event_delete(session->ev_);
+    t2u_delete_event(session->ev_);
     session->ev_ = NULL;
 
     /* close socket */
@@ -355,7 +503,7 @@ void t2u_delete_connecting_session(t2u_session *session)
     }
 
     /* delete from rule */
-    rbtree_remove(session->rule_->connecting_sessions_, session);
+    rbtree_remove(session->rule_->connecting_sessions_, &session->handle_);
 
     /* free */
     free(session);
@@ -363,7 +511,7 @@ void t2u_delete_connecting_session(t2u_session *session)
 
 void t2u_delete_connected_session(t2u_session *session)
 {
-    t2u_event_delete(session->ev_);
+    t2u_delete_event(session->ev_);
     session->ev_ = NULL;
 
     /* close socket */
@@ -373,28 +521,56 @@ void t2u_delete_connected_session(t2u_session *session)
         session->sock_ = 0;
     }
 
-    /* delete from rule */
-    rbtree_remove(session->rule_->sessions_, session);
+    /* clear recv queue */
+    while (session->recv_mess_->root)
+    {
+        void *mdata = session->recv_mess_->root->data;
+        rbtree_remove(session->recv_mess_, session->recv_mess_->root->key);
+        free(mdata);
+    }
 
+    while (session->send_mess_->root)
+    {
+        t2u_message *m = session->send_mess_->root->data;
+
+        /* t2u_message only in send queue */
+        t2u_delete_request_message(m);
+    }
+
+    // TODO: remove it
+    LOG_(1, "session end with %d send buffers.", session->send_buffer_count_);
+    LOG_(1, "session end with %d recv buffers.", session->recv_buffer_count_);
+    // t2u_sleep(3000);
+
+    /* delete from rule */
+    rbtree_remove(session->rule_->sessions_, &session->handle_);
+
+    LOG_(1, "delete connected session: %p, sock: %d", session, session->sock_);
     /* free */
     free(session);
 }
 
-
+void t2u_delete_connected_session_later(t2u_session *session)
+{
+    t2u_delete_connected_session(session);
+    session->status_ = 3; // closing
+}
 
 
 static t2u_session *find_session_in_rule(t2u_rule *rule, uint32_t handle, int ispair)
 {
+    void *n = NULL;
     if (ispair)
     {
         /* sessions_ key using pair_handle */
-        return rbtree_lookup(rule->sessions_, &handle);
+        n = rbtree_lookup(rule->sessions_, &handle);
     }
     else
     {
         /* connecting_sessions_ using self handle */
-        return rbtree_lookup(rule->connecting_sessions_, &handle);
+        n = rbtree_lookup(rule->connecting_sessions_, &handle);
     }
+    return (t2u_session *)n;
 }
 
 static t2u_session *find_session_in_context_walk(rbtree_node *node, uint32_t handle, int ispair)
@@ -414,7 +590,6 @@ static t2u_session *find_session_in_context_walk(rbtree_node *node, uint32_t han
             }
         }
     }
-
     return session;
 }
 

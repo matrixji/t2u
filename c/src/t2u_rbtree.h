@@ -18,7 +18,6 @@ typedef struct rbtree_node
 } rbtree_node;
 
 typedef int (*rbtree_cmp_proc)(void *key_a, void *key_b);
-typedef int (*rbtree_walk_proc)(rbtree_node* node, void *arg);
 
 typedef struct rbtree
 {
@@ -29,7 +28,6 @@ typedef struct rbtree
 struct rbtree* rbtree_init(rbtree_cmp_proc fn);
 int rbtree_insert(struct rbtree *tree, void *key, void *data);
 void* rbtree_lookup(struct rbtree *tree,void *key);
-int  rbtree_remove(struct rbtree *tree, void *key);
-int rbtree_walk_inorder(struct rbtree_node *node, rbtree_walk_proc fn, void *arg);
+int rbtree_remove(struct rbtree *tree, void *key);
 
 #endif /* __t2u_rbtree_h__ */
