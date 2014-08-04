@@ -4,3 +4,5 @@
 *.so
 *.lib
 **/test_t2u
+*.opensdf
+*.sdf
