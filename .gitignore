@@ -1,8 +1,8 @@
 *.o
-*.obj
 *.a
 *.so
-*.lib
-**/test_t2u
 *.opensdf
 *.sdf
+/c/vc12/Debug
+/c/vc12/Release/t2u_test.tlog
+/c/vc12/Release
