@@ -199,6 +199,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                 }
                 else if (r > 0)
                 {
+                    assert(r == mdata_len - sizeof(t2u_message_data));
                     // success.
                     *value = htonl(0);
                     session->recv_seq_++;
