@@ -553,8 +553,8 @@ void t2u_delete_connected_session(t2u_session *session)
 
 void t2u_delete_connected_session_later(t2u_session *session)
 {
-    t2u_delete_connected_session(session);
     session->status_ = 3; // closing
+    t2u_delete_connected_session(session);
 }
 
 
