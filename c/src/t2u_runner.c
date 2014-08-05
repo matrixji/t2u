@@ -129,14 +129,14 @@ void t2u_delete_event(t2u_event *ev)
         if (ev->event_)
         {
             event_del(ev->event_);
-            free(ev->event_);
+            event_free(ev->event_);
             ev->event_ = NULL;
         }
 
         if (ev->extra_event_)
         {
             event_del(ev->extra_event_);
-            free(ev->extra_event_);
+            event_free(ev->extra_event_);
             ev->extra_event_ = NULL;
         }
 
@@ -235,13 +235,8 @@ static void delete_runner_cb_(t2u_runner *runner, void *arg)
         t2u_delete_context(context);    
     }
 
-    /* remove self event */
-    if (runner->control_event_)
-    {
-        event_del(runner->control_event_);
-        free(runner->control_event_);
-        runner->control_event_ = NULL;
-    }
+    free(runner->contexts_);
+    runner->contexts_ = NULL;
 }
     
 /* destroy the runner */
@@ -261,10 +256,19 @@ void t2u_delete_runner(t2u_runner *runner)
         runner->running_ = 0;
         
         cdata.func_ = delete_runner_cb_;
+        cdata.arg_ = NULL;
 
         t2u_runner_control(runner, &cdata);
 
         t2u_thr_join(runner->thread_);
+    }
+
+    /* remove self event */
+    if (runner->control_event_)
+    {
+        event_del(runner->control_event_);
+        free(runner->control_event_);
+        runner->control_event_ = NULL;
     }
 
     /* cleanup */
@@ -272,6 +276,12 @@ void t2u_delete_runner(t2u_runner *runner)
     closesocket(runner->sock_[1]);  
 
     LOG_(0, "delete the runner: %p", (void *)runner);
+
+    if (runner->base_)
+    {
+        free(runner->base_);
+        runner->base_ = NULL;
+    }
 
     /* last cleanup */
     free(runner);

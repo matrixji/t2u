@@ -13,6 +13,9 @@ void t2u_delete_connected_session(t2u_session *session);
 /* delete established session later, mark deleting, delete it when send queue flushed */
 void t2u_delete_connected_session_later(t2u_session *session);
 
+/* test and try delete session after delete later */
+void t2u_try_delete_connected_session(t2u_session *session);
+
 /* handler for connect response */
 void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data *mdata);
 

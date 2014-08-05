@@ -211,7 +211,7 @@ typedef struct control_data_
     /* callback function */
     void (* func_) (t2u_runner *, void *); 
     void *arg_;
-    int error_;     /* callback error code */
+    // int error_;     /* callback error code */
 } control_data;
 
 

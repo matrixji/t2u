@@ -98,9 +98,13 @@ void t2u_delete_request_message(t2u_message *message)
             }
         }
 
+        free(message);
+        t2u_try_delete_connected_session(session);
     }
-
-    free(message);
+    else
+    {
+        free(message);
+    }
 }
 
 void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *mdata)

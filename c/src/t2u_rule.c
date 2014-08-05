@@ -245,6 +245,7 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
     LOG_(1, "delete the rule %p, name: %s from context: %p", 
         rule, rule->service_, context);
 
+    free(rule->service_);
     free(rule);
 }
 

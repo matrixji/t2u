@@ -39,7 +39,7 @@
     <ClCompile Include="..\src\t2u_session.c">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="..\test\t2u_test2.c">
+    <ClCompile Include="..\test\t2u_test.c">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

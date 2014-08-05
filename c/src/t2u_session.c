@@ -97,6 +97,7 @@ void t2u_session_process_tcp(evutil_socket_t sock, short events, void *arg)
     
     /* build a session message */
     t2u_add_request_message(session, buff, read_bytes);
+    free(buff);
 
     return;
 }
@@ -225,6 +226,9 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
 
                     // update the response seq.
                     mdata_resp->seq_ = htonl(this_mdata->seq_);
+
+                    // try delete.
+                    t2u_try_delete_connected_session(session);
                 }
             }
         }
@@ -507,6 +511,8 @@ void t2u_delete_connecting_session(t2u_session *session)
     rbtree_remove(session->rule_->connecting_sessions_, &session->handle_);
 
     /* free */
+    free(session->send_mess_);
+    free(session->recv_mess_);
     free(session);
 }
 
@@ -547,14 +553,26 @@ void t2u_delete_connected_session(t2u_session *session)
     rbtree_remove(session->rule_->sessions_, &session->handle_);
 
     LOG_(1, "delete connected session: %p, sock: %d", session, session->sock_);
+    
     /* free */
+    free(session->send_mess_);
+    free(session->recv_mess_);
     free(session);
+}
+
+void t2u_try_delete_connected_session(t2u_session *session)
+{
+    /* check status send_mess_ recv_mess_ */
+    if ((session->status_ == 3) && (NULL == session->send_mess_->root) && (NULL == session->recv_mess_->root))
+    {
+        t2u_delete_connected_session(session);
+    }
 }
 
 void t2u_delete_connected_session_later(t2u_session *session)
 {
     session->status_ = 3; // closing
-    t2u_delete_connected_session(session);
+    // t2u_delete_connected_session(session);
 }
 
 
