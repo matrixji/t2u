@@ -18,6 +18,11 @@ typedef int socklen_t;
 
 #include "t2u.h"
 
+#define T2U_UDP_PORT_S 12345
+#define T2U_UDP_PORT_C 12346
+
+#define TEST_TCP_PORT 13579
+
 void test_log(int level, const char *mess)
 {
     if (level >= 0)
@@ -27,137 +32,115 @@ void test_log(int level, const char *mess)
     }
 }
 
-void usage(char *cmd)
-{
-    printf("%s server <udp-port> <service-name> <service-addr> <service-port>\n", cmd);
-    printf("%s client <server-addr> <server-port> <service-name> <listen-port>\n", cmd);
-    exit(1);
-}
 
-int main(int argc, char *argv[])
+typedef struct test_context_
 {
-    /* for c/s */
     forward_context context;
     forward_rule rule;
     sock_t sock;
-    struct sockaddr_in addr;
-    //unsigned short port = 12345;
-    int isserver = 1;
+} test_context;
 
-    if (argc != 6)
-    {
-        usage(argv[0]);
-    }
+
+void cleanup_t2u(test_context *tc)
+{
+    free_forward(tc->context);
 
 #ifdef _MSC_VER
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(1, 2), &wsaData);
+    closesocket(tc->sock);
+#else
+    close(tc->sock);
 #endif
 
-    if (strcmp(argv[1], "server") == 0)
-    {
-        isserver = 1;
-    }
-    else if (strcmp(argv[1], "client") == 0)
-    {
-        isserver = 0;
-    }
-    else
-    {
-        usage(argv[1]);
-    }
+    free(tc);
+}
 
+test_context *setup_t2u(int isserver)
+{
+    /* for c/s */
+    test_context *tc = (test_context *)malloc(sizeof(test_context));
+    struct sockaddr_in addr;
 
-    set_log_callback(test_log);
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == -1)
+    tc->sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (tc->sock == -1)
     {
 #ifdef _MSC_VER
         fprintf(stderr, "socket failed. %d\n", WSAGetLastError());
 #else
         fprintf(stderr, "socket failed. %d\n", errno);
 #endif
-        return 1;
+        exit(1);
     }
 
     addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
     if (isserver)
     {
-        addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-        addr.sin_port = htons(atoi(argv[2]));
-
-        if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
-        {
-#ifdef _MSC_VER
-            fprintf(stderr, "bind failed. %d\n", WSAGetLastError());
-#else
-            fprintf(stderr, "bind failed. %d\n", errno);
-#endif
-            return 1;
-        }
-
-        char buff[64];
-        socklen_t len = sizeof(addr);
-        recvfrom(sock, buff, sizeof(buff), 0, (struct sockaddr *)&addr, &len);
-
-        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
-        {
-#ifdef _MSC_VER
-            fprintf(stderr, "connect failed. %d\n", WSAGetLastError());
-#else
-            fprintf(stderr, "connect failed. %d\n", errno);
-#endif
-            return 1;
-        }
-        send(sock, "hello\0", 6, 0);
+        addr.sin_port = htons(T2U_UDP_PORT_S);
     }
     else
     {
-        addr.sin_addr.s_addr = inet_addr(argv[2]);
-        addr.sin_port = htons(atoi(argv[3]));
-
-        if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
-        {
-#ifdef _MSC_VER
-            fprintf(stderr, "connect failed. %d\n", WSAGetLastError());
-#else
-            fprintf(stderr, "connect failed. %d\n", errno);
-#endif
-            return 1;
-        }
-
-        char buff[64];
-        send(sock, "hello\0", 6, 0);
-        recv(sock, buff, sizeof(buff), 0);
-        if (strcmp(buff, "hello") != 0)
-        {
-            fprintf(stderr, "hello failed.\n");
-            return 1;
-        }
+        addr.sin_port = htons(T2U_UDP_PORT_C);
     }
-
-    /* now using the udp tunnel */
-    context = create_forward(sock);
-    set_context_option(context, 3, 64);
+    if (bind(tc->sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+    {
+#ifdef _MSC_VER
+        fprintf(stderr, "bind failed. %d\n", WSAGetLastError());
+#else
+        fprintf(stderr, "bind failed. %d\n", errno);
+#endif
+        exit(1);
+    }
 
     if (isserver)
     {
-        rule = add_forward_rule(context, forward_server_mode, argv[3], argv[4], atoi(argv[5]));
+        addr.sin_port = htons(T2U_UDP_PORT_C);
     }
     else
     {
-        rule = add_forward_rule(context, forward_client_mode, argv[4], "0.0.0.0", atoi(argv[5]));
+        addr.sin_port = htons(T2U_UDP_PORT_S);
     }
 
-    printf("press any key to exit.\n");
+    if (connect(tc->sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+    {
+#ifdef _MSC_VER
+        fprintf(stderr, "connect failed. %d\n", WSAGetLastError());
+#else
+        fprintf(stderr, "connect failed. %d\n", errno);
+#endif
+        exit(1);
+    }
+
+    tc->context = create_forward(tc->sock);
+   
+    if (isserver)
+    {
+        tc->rule = add_forward_rule(tc->context, forward_server_mode, "test", "127.0.0.1", TEST_TCP_PORT);
+    }
+    else
+    {
+        tc->rule = add_forward_rule(tc->context, forward_client_mode, "test", "127.0.0.1", TEST_TCP_PORT);
+    }
+
+    return tc;
+}
+
+
+int main()
+{
+    set_log_callback(test_log);
+
+#ifdef _MSC_VER
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(1, 2), &wsaData);
+#endif
+
+    test_context *tc_server = setup_t2u(1);
+    test_context *tc_client = setup_t2u(0);
+
+    printf("press enter to exit!\n");
     getchar();
 
-    free_forward(context);
+    cleanup_t2u(tc_server);
+    cleanup_t2u(tc_client);
 
-#ifdef WIN32
-    WSACleanup();
-#endif
-
-    return 0;
 }
