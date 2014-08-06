@@ -175,6 +175,9 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
 #ifdef __linux__
                 flags |= MSG_NOSIGNAL;
 #endif
+#ifdef __apple__
+                flags |= SO_NOSIGPIPE;
+#endif
                 int r = send(session->sock_, this_mdata->payload, mdata_len - sizeof(t2u_message_data), flags);
 
                 if (this_mdata->seq_ != mdata->seq_)
