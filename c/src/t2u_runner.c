@@ -128,14 +128,12 @@ void t2u_delete_event(t2u_event *ev)
     {
         if (ev->event_)
         {
-            event_del(ev->event_);
             event_free(ev->event_);
             ev->event_ = NULL;
         }
 
         if (ev->extra_event_)
         {
-            event_del(ev->extra_event_);
             event_free(ev->extra_event_);
             ev->extra_event_ = NULL;
         }
@@ -207,7 +205,7 @@ t2u_runner * t2u_runner_new()
     ret = event_add(runner->control_event_, NULL);
     assert(0 == ret);
 
-    LOG_(0, "create new runner: %p", (void *)runner);
+	LOG_(0, "create new runner: %p, with control sock: %d", (void *)runner, runner->sock_[0]);
 
     /* contexts */
     runner->contexts_ = rbtree_init(NULL);
@@ -237,6 +235,13 @@ static void delete_runner_cb_(t2u_runner *runner, void *arg)
 
     free(runner->contexts_);
     runner->contexts_ = NULL;
+
+	/* remove self event */
+	if (runner->control_event_)
+	{
+		event_free(runner->control_event_);
+		runner->control_event_ = NULL;
+	}
 }
     
 /* destroy the runner */
@@ -263,13 +268,6 @@ void t2u_delete_runner(t2u_runner *runner)
         t2u_thr_join(runner->thread_);
     }
 
-    /* remove self event */
-    if (runner->control_event_)
-    {
-        event_del(runner->control_event_);
-        free(runner->control_event_);
-        runner->control_event_ = NULL;
-    }
 
     /* cleanup */
     closesocket(runner->sock_[0]);
@@ -279,7 +277,7 @@ void t2u_delete_runner(t2u_runner *runner)
 
     if (runner->base_)
     {
-        free(runner->base_);
+        event_base_free(runner->base_);
         runner->base_ = NULL;
     }
 

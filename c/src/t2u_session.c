@@ -118,8 +118,7 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
         session->pair_handle_ = pair_handle;
 
         // clear events
-        event_del(session->ev_->event_);
-        free(session->ev_->event_);
+        event_free(session->ev_->event_);
         session->ev_->event_ = NULL;
 
         // move connecting -> connected
@@ -133,7 +132,7 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         event_add(session->ev_->event_, NULL);
 
-        LOG_(1, "connect for session: %p with handle: %lu success.", session, (unsigned long)session->handle_);
+		LOG_(1, "connect for session: %p with handle: %lu success. sock: %d", session, (unsigned long)session->handle_, session->sock_);
 
     }
     else
@@ -172,7 +171,11 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
             {
                 uint32_t next_seq = this_mdata->seq_ + 1;
 
-                int r = send(session->sock_, this_mdata->payload, mdata_len - sizeof(t2u_message_data), 0);
+                int flags = 0;
+#ifdef __linux__
+                flags |= MSG_NOSIGNAL;
+#endif
+                int r = send(session->sock_, this_mdata->payload, mdata_len - sizeof(t2u_message_data), flags);
 
                 if (this_mdata->seq_ != mdata->seq_)
                 {
@@ -375,11 +378,10 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
         session->status_ = 2;
 
         // clear events
-        event_del(ev->event_);
-        free(ev->event_);
+        event_free(ev->event_);
         ev->event_ = NULL;
 
-        free(ev->extra_event_);
+		event_free(ev->extra_event_);
         ev->extra_event_ = NULL;
 
         // send response
@@ -396,7 +398,7 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
 
         event_add(ev->event_, NULL);
 
-        LOG_(1, "connect for session: %p with handle: %lu success.", session, (unsigned long)session->handle_);
+		LOG_(1, "connect for session: %p with handle: %lu success. sock: %d", session, (unsigned long)session->handle_, session->sock_);
 
     }
     else
@@ -481,6 +483,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pa
         /* extra event for server mdoe */
         session->ev_->extra_event_ = event_new(runner->base_, sock, EV_WRITE, session_connect_success_cb_, session->ev_);
         event_add(session->ev_->extra_event_, NULL);
+		LOG_(1, "add extra event for connecting session: %p sock: %d", session, sock);
     }
 
     /* add session to rule, using self handle as key */
@@ -572,7 +575,7 @@ void t2u_try_delete_connected_session(t2u_session *session)
 void t2u_delete_connected_session_later(t2u_session *session)
 {
     session->status_ = 3; // closing
-    // t2u_delete_connected_session(session);
+	t2u_try_delete_connected_session(session);
 }
 
 

@@ -42,19 +42,33 @@ unknown_callback get_unknown_func_()
     return g_unknown_callback_func_;
 }
 
+static t2u_mutex_t __g_runner_mutex_;
+static int __g_runner_mutex_init_ = 0;
+
 /* create a forward context with the udp socket pair 
  * if using this in STUN mode. you need to STUN it by yourself.
  */
 forward_context create_forward(sock_t s)
 {
+	if (!__g_runner_mutex_init_)
+	{
+		t2u_mutex_init(&__g_runner_mutex_);
+		__g_runner_mutex_init_ = 1;
+	}
+
+	t2u_mutex_lock(&__g_runner_mutex_);
     if (!g_runner)
     {
-        /* new a runner and run it. */
-        g_runner = t2u_runner_new();
-        assert(NULL != g_runner);
+		/* new a runner and run it. */
+		g_runner = t2u_runner_new();
+		assert(NULL != g_runner);				
     }
 
-    return (forward_context) t2u_add_context(g_runner, s);;
+	forward_context ret = (forward_context) t2u_add_context(g_runner, s);
+	t2u_mutex_unlock(&__g_runner_mutex_);
+
+	return ret;
+
 }
 
 
@@ -71,9 +85,11 @@ void free_forward(forward_context c)
     /* check runner */
     if (g_runner && ((!g_runner->contexts_) || (!g_runner->contexts_->root)))
     {
+		t2u_mutex_lock(&__g_runner_mutex_);
         /* the runner is already stopped and no events bind. */
-        t2u_delete_runner(g_runner);
-        g_runner = NULL;
+		t2u_delete_runner(g_runner);
+		g_runner = NULL;
+		t2u_mutex_unlock(&__g_runner_mutex_);
     }
     return;
 }

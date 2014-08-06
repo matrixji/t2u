@@ -172,7 +172,7 @@ static void add_context_cb_(t2u_runner *runner, void *arg)
     event_add(context->ev_udp_->event_, NULL);
     rbtree_insert(runner->contexts_, context, context);
 
-    LOG_(1, "add context:%p to runner: %p", context, runner);
+	LOG_(1, "add context:%p to runner: %p, sock: %d", context, runner, context->sock_);
 }
 
 

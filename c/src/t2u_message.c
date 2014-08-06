@@ -95,11 +95,11 @@ void t2u_delete_request_message(t2u_message *message)
                     EV_READ | EV_PERSIST, t2u_session_process_tcp, session->ev_);
 
                 event_add(session->ev_->event_, NULL);
+				LOG_(0, "readd event with session: %p, sock: %d", session, session->sock_);
             }
         }
 
         free(message);
-        t2u_try_delete_connected_session(session);
     }
     else
     {
@@ -127,6 +127,8 @@ void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *md
         LOG_(2, "data response with error for session: %p, value: %d", session, value);
         t2u_delete_connected_session(session);
     }
+
+	t2u_try_delete_connected_session(session);
 }
 
 void t2u_message_handle_retrans_request(t2u_message *message, t2u_message_data *mdata)

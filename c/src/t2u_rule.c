@@ -98,6 +98,7 @@ static void add_rule_cb_(t2u_runner *runner, void *arg)
         assert(NULL != rule->ev_listen_->event_);
 
         event_add(rule->ev_listen_->event_, NULL);
+		LOG_(0, "add event for rule listen, rule: %p, sock: %d", rule, rule->listen_sock_);
     }
 
     rbtree_insert(context->rules_, rule->service_, rule);
@@ -204,6 +205,10 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
 {
     t2u_rule *rule = (t2u_rule*)arg;
     t2u_context *context = rule->context_;
+	
+	/* remove the events */
+	t2u_delete_event(rule->ev_listen_);
+	rule->ev_listen_ = NULL;
 
     if (forward_client_mode == rule->mode_)
     {
@@ -223,7 +228,7 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
     while (rule->connecting_sessions_->root)
     {
         rbtree_node *node = rule->connecting_sessions_->root;
-        void *remove = node->key;
+        void *remove = node->data;
         
         t2u_delete_connecting_session(remove);
     }
@@ -234,10 +239,6 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
 
     free(rule->connecting_sessions_);
     rule->connecting_sessions_ = NULL;
-
-    /* remove the events */
-    t2u_delete_event(rule->ev_listen_);
-    rule->ev_listen_ = NULL;
 
     /* remove from context */
     rbtree_remove(context->rules_, rule->service_);
