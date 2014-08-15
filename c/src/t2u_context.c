@@ -245,7 +245,7 @@ void t2u_delete_context(t2u_context *context)
 
 void t2u_send_message_data(t2u_context *context, char *data, size_t size)
 {
-#if 0
+#if 1
     send(context->sock_, data, size, 0);
 #else
     int a = rand();
