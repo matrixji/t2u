@@ -102,21 +102,19 @@ static void client_recv_cb_(evutil_socket_t sock, short events, void *arg)
         for (i = 0; i < sizeof(buff) / sizeof(buff[0]); i++)
         {
             unsigned int tmp = htonl(buff[i]);
-            if (tmp != (++p))
-            {
-                printf("%s", 0);
-            }
-            //assert(tmp == (++p));
+            assert(tmp == (++p));
         }
         printf(".");
         fflush(stdout);
+
+        r = 0;
     }
 }
 
 static void client_time_cb_(evutil_socket_t sock, short events, void *arg)
 {
     client_context *cc = (client_context *)arg;
-    struct timeval t = { 1, 0 };
+    struct timeval t = { 0, 100000 };
     int r = 0;
     int i = 0;
 

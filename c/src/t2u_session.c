@@ -35,9 +35,9 @@ static int compare_uint32_ptr(void *a, void *b)
 void t2u_session_process_tcp(evutil_socket_t sock, short events, void *arg)
 {
     t2u_event *ev = (t2u_event *)arg;
-    t2u_runner *runner = ev->runner_;
+    //t2u_runner *runner = ev->runner_;
     t2u_context *context = ev->context_;
-    t2u_rule *rule = ev->rule_;
+    //t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
     char *buff = NULL;
     int read_bytes;
@@ -221,12 +221,18 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                     return;
                 }
                 
-                this_mdata = rbtree_lookup(session->recv_mess_, &next_seq);
+                t2u_message *this_m  = rbtree_lookup(session->recv_mess_, &next_seq);
 
-                if (this_mdata)
+                if (this_m)
                 {
+                    this_mdata = this_m->data_;
+                    mdata_len = this_m->len_;
+
                     // find next. remove it from recv queue
                     rbtree_remove(session->recv_mess_, &this_mdata->seq_);
+
+                    // free the mess
+                    free(this_m);
 
                     session->recv_buffer_count_--;
 
@@ -250,20 +256,25 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
         // in range, but not in sequence. push to recv queue.
         LOG_(1, "we want:%lu but:%lu", session->recv_seq_ + 1, mdata->seq_);
         this_mdata = NULL;
-        this_mdata = rbtree_lookup(session->recv_mess_, &mdata->seq_);
-        if (!this_mdata && session->recv_buffer_count_ < context->udp_slide_window_)
+        t2u_message *this_m = rbtree_lookup(session->recv_mess_, &mdata->seq_);
+        
+        if (!this_m && session->recv_buffer_count_ < context->udp_slide_window_)
         {
+            this_m = (t2u_message *) malloc(sizeof(t2u_message));
             this_mdata = (t2u_message_data *)malloc(mdata_len);
             assert(NULL != this_mdata);
 
             memcpy(this_mdata, mdata, mdata_len);
-            rbtree_insert(session->recv_mess_, &this_mdata->seq_, this_mdata);
+            this_m->data_ = this_mdata;
+            this_m->len_ = mdata_len;
+
+            rbtree_insert(session->recv_mess_, &this_mdata->seq_, this_m);
             session->recv_buffer_count_++;
         }
 
         // send retrans request
         t2u_message_data retrans_md; 
-        retrans_md.handle_ = htonl(session->handle_);
+        retrans_md.handle_ = htonl(session->pair_handle_);
         retrans_md.magic_ = htonl(T2U_MESS_MAGIC);
         retrans_md.oper_ = htons(retrans_request);
         retrans_md.version_ = htons(1);
@@ -537,9 +548,11 @@ void t2u_delete_connected_session(t2u_session *session)
     /* clear recv queue */
     while (session->recv_mess_->root)
     {
-        void *mdata = session->recv_mess_->root->data;
+        t2u_message *m = session->recv_mess_->root->data;
         rbtree_remove(session->recv_mess_, session->recv_mess_->root->key);
-        free(mdata);
+        
+        free(m->data_);
+        free(m);
     }
 
     while (session->send_mess_->root)

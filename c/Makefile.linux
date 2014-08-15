@@ -3,10 +3,10 @@ AR=ar
 RANLIB=ranlib
 
 CFLAGS=-Wall -Wextra -O0 -g 
-INCS=-Iinclude
+INCS=-Iinclude -Isrc
 
 LIBT2U_SRCS=$(wildcard src/*.c)
-LIBT2U_OBJS=src/t2u_session.o $(subst .c,.o,$(LIBT2U_SRCS))
+LIBT2U_OBJS=$(subst .c,.o,$(LIBT2U_SRCS))
 
 all: test_t2u libt2u.a
 
@@ -20,8 +20,8 @@ libt2u.a: $(LIBT2U_OBJS)
 	$(CC) -o $@ -c $^ $(CFLAGS) $(INCS)
 
 
-test_t2u: test/t2u_test.o libt2u.a
-	$(CC) -o $@ $^ -L. -L/usr/local/lib -Wl,-Bstatic -lt2u -levent -Wl,-Bdynamic -lrt
+test_t2u: test/t2u_test.o $(LIBT2U_OBJS)
+	$(CC) -o $@ $^ -L. -L/usr/local/lib -Wl,-Bstatic -levent -Wl,-Bdynamic -lrt
 
 
 clean:

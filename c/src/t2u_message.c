@@ -20,6 +20,13 @@ static void process_request_timeout_cb_(evutil_socket_t sock, short events, void
     }
     else
     {
+        /* readd the timer */
+        struct timeval t;
+        t.tv_sec = context->utimeout_ / 1000;
+        t.tv_usec = (context->utimeout_ % 1000) * 1000;
+        event_add(message->ev_timeout_->event_, &t);
+        
+        /* send mess again */
         t2u_send_message_data(context, (char *)message->data_, message->len_);
     }
 }
