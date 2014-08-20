@@ -8,7 +8,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t ha
 void t2u_delete_connecting_session(t2u_session *session);
 
 /* delete established session */
-void t2u_delete_connected_session(t2u_session *session);
+void t2u_delete_connected_session(t2u_session *session, int sync_from_peer);
 
 /* delete established session later, mark deleting, delete it when send queue flushed */
 void t2u_delete_connected_session_later(t2u_session *session);

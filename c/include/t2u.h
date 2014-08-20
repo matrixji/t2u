@@ -78,6 +78,10 @@ void free_forward(forward_context c);
 // slide window for udp packets. 1 - 64, default 16.
 #define CTX_UDP_SLIDEWINDOW (0x03)
 
+// session timeout in seconds. 10 - 86400, default 900.
+#define CTX_SESSION_TIMEOUT (0x04)
+
+
 // udp debug option: simulate a delay, ms. default: 0.
 #define CTX_UDP_DEBUG_DELAY (0xf0)
 

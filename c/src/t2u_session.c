@@ -42,6 +42,30 @@ static int compare_uint32_ptr(void *a, void *b)
 }
 
 
+static void session_timeout_check_cb_(evutil_socket_t sock, short events, void *arg)
+{
+    t2u_event *ev = (t2u_event *)arg;
+    t2u_session *session = ev->session_;
+    time_t c = time(NULL);
+
+    if ((c > session->last_send_ts_) && (c - session->last_send_ts_ > ev->context_->session_timeout_))
+    {
+        LOG_(2, "delete timeout session: %p", session);
+        t2u_delete_connected_session(session, 0);
+    }
+    else
+    {
+        /* add event to extra session */
+        long s = (long)ev->context_->session_timeout_ - (long)(c - session->last_send_ts_);
+        if (s <= 0)
+        {
+            s = 1;
+        }
+        struct timeval t = {s, 0 };
+        event_add(session->ev_->extra_event_, &t);
+    }
+}
+
 void t2u_session_process_tcp(evutil_socket_t sock, short events, void *arg)
 {
     t2u_event *ev = (t2u_event *)arg;
@@ -118,6 +142,7 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
     t2u_rule *rule = session->rule_;
     t2u_context *context = rule->context_;
     t2u_runner *runner = context->runner_;
+    struct timeval t = { context->session_timeout_, 0 };
 
     uint32_t error = *((uint32_t *)(void *)mdata->payload);
     error = ntohl(error);
@@ -138,8 +163,11 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
         session->ev_->event_ = event_new(runner->base_, session->sock_, 
             EV_READ | EV_PERSIST, t2u_session_process_tcp, session->ev_);
         assert(NULL != session->ev_->event_);
-
         event_add(session->ev_->event_, NULL);
+
+        session->ev_->extra_event_ = evtimer_new(runner->base_, session_timeout_check_cb_, session->ev_);
+        assert(NULL != session->ev_->extra_event_);
+        event_add(session->ev_->extra_event_, &t);
 
 		LOG_(1, "connect for session: %p with handle: %llu success. sock: %d", session, session->handle_, session->sock_);
 
@@ -206,7 +234,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                 {
                     // error, response it's error.
                     *value = htonl(1);
-                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
 
                     LOG_(2, "send on session: %p failed. error: %d", session, last_error);
                     t2u_delete_connected_session_later(session);
@@ -219,13 +247,13 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                     // success.
                     *value = htonl(0);
                     session->recv_seq_++;
-                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
                 }
                 else
                 {
                     // block
                     *value = htonl(2);
-                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
                     free(mdata_resp);
                     return;
                 }
@@ -255,7 +283,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
         }
         else
         {
-            t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int));
+            t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
         }
 
         free(mdata_resp);
@@ -300,7 +328,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                 if (span1 <= context->udp_slide_window_ && span2 > context->udp_slide_window_)
                 {
                     retrans_md.seq_ = htonl(test_seq);
-                    t2u_send_message_data(context, (char *)&retrans_md, sizeof(retrans_md));
+                    t2u_send_message_data(context, (char *)&retrans_md, sizeof(retrans_md), session);
                     session->retry_seq_ = test_seq;
                 }
             }
@@ -332,7 +360,7 @@ static void session_connect_response_(t2u_session *session)
         *error = htonl(1);
     }
 
-    t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + sizeof(uint32_t));
+    t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + sizeof(uint32_t), session);
 
     free(mdata);
 }
@@ -360,7 +388,7 @@ static void session_connect_(t2u_session *session)
 #else
         strcpy(mdata->payload, rule->service_);
 #endif
-        t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + name_len + 1);
+        t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + name_len + 1, session);
 
         free(mdata);
     }
@@ -391,6 +419,7 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
     t2u_runner *runner = ev->runner_;
     t2u_rule *rule = ev->rule_;
     t2u_session *session = ev->session_;
+    struct timeval t = { ev->context_->session_timeout_, 0 };
 
     (void)events;
 
@@ -418,8 +447,11 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
         ev->event_ = event_new(runner->base_, session->sock_, 
             EV_READ | EV_PERSIST, t2u_session_process_tcp, ev);
         assert(NULL != ev->event_);
-
         event_add(ev->event_, NULL);
+
+        ev->extra_event_ = evtimer_new(runner->base_, session_timeout_check_cb_, ev);
+        assert(NULL != ev->extra_event_);
+        event_add(ev->extra_event_, &t);
 
 		LOG_(1, "connect for session: %p with handle: %llu success. sock: %d", session, session->handle_, session->sock_);
 
@@ -555,10 +587,22 @@ void t2u_delete_connecting_session(t2u_session *session)
     free(session);
 }
 
-void t2u_delete_connected_session(t2u_session *session)
+void t2u_delete_connected_session(t2u_session *session, int sync_from_pair)
 {
     t2u_delete_event(session->ev_);
     session->ev_ = NULL;
+
+    if (!sync_from_pair)
+    {
+        t2u_message_data md;
+        md.handle_ = hton64(session->handle_);
+        md.magic_ = htonl(T2U_MESS_MAGIC);
+        md.oper_ = htons(close_request);
+        md.seq_ = htonl(0);
+        md.version_ = htons(1);
+
+        t2u_send_message_data(session->rule_->context_, (char *)&md, sizeof(md), session);
+    }
 
     /* close socket */
     if (session->sock_)
@@ -606,7 +650,7 @@ void t2u_try_delete_connected_session(t2u_session *session)
     /* check status send_mess_ recv_mess_ */
     if ((session->status_ == 3) && (NULL == session->send_mess_->root) && (NULL == session->recv_mess_->root))
     {
-        t2u_delete_connected_session(session);
+        t2u_delete_connected_session(session, 0);
     }
 }
 

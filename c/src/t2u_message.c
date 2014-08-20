@@ -27,7 +27,7 @@ static void process_request_timeout_cb_(evutil_socket_t sock, short events, void
         event_add(message->ev_timeout_->event_, &t);
         
         /* send mess again */
-        t2u_send_message_data(context, (char *)message->data_, message->len_);
+        t2u_send_message_data(context, (char *)message->data_, message->len_, session);
     }
 }
 
@@ -73,7 +73,7 @@ t2u_message *t2u_add_request_message(t2u_session *session, char *payload, int pa
     rbtree_insert(session->send_mess_, &message->seq_, message);
     session->send_buffer_count_++;
 
-    t2u_send_message_data(context, (char *)message->data_, message->len_);
+    t2u_send_message_data(context, (char *)message->data_, message->len_, session);
     
     return message;
 }
@@ -132,7 +132,7 @@ void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *md
     {
         /* error */
         LOG_(2, "data response with error for session: %p, value: %d", session, value);
-        t2u_delete_connected_session(session);
+        t2u_delete_connected_session(session, 0);
     }
 
 	t2u_try_delete_connected_session(session);
@@ -141,5 +141,5 @@ void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *md
 void t2u_message_handle_retrans_request(t2u_message *message, t2u_message_data *mdata)
 {
     LOG_(1, "retrans: %lu", message->data_->seq_);
-    t2u_send_message_data(message->session_->rule_->context_, (char *)message->data_, message->len_);
+    t2u_send_message_data(message->session_->rule_->context_, (char *)message->data_, message->len_, message->session_);
 }

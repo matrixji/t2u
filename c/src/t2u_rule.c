@@ -44,7 +44,7 @@ void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
     if (oldsession)
     {
         LOG_(2, "delete old session:%p", oldsession);
-        t2u_delete_connected_session(oldsession);
+        t2u_delete_connected_session(oldsession, 0);
     }
 
     /* connect to peer */
@@ -231,7 +231,7 @@ void delete_rule_cb_(t2u_runner *runner, void *arg)
         rbtree_node *node = rule->sessions_->root;
         void *remove = node->data;
         
-        t2u_delete_connected_session(remove);
+        t2u_delete_connected_session(remove, 0);
     }
 
     /* remove sessions */

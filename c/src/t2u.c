@@ -131,18 +131,31 @@ void set_context_option(forward_context c, int option, unsigned long value)
             }
             break;
         case CTX_UDP_SLIDEWINDOW:
+        {
+            if (value < 1)
             {
-                if (value < 1)
-                {
-                    value = 1;
-                }
-                else if (value > 64)
-                {
-                    value = 64;
-                }
-                context->udp_slide_window_ = value;
+                value = 1;
             }
-            break;
+            else if (value > 64)
+            {
+                value = 64;
+            }
+            context->udp_slide_window_ = value;
+        }
+            break; 
+        case CTX_SESSION_TIMEOUT:
+            {
+                if (value < 10)
+                {
+                    value = 10;
+                }
+                else if (value > 86400)
+                {
+                    value = 86400;
+                }
+                context->session_timeout_ = value;
+            }
+                break;
         default:
             break;
     }

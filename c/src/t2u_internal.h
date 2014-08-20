@@ -157,6 +157,7 @@ typedef struct t2u_session_
     unsigned long connect_retries_;         /* retry count */
     t2u_event *ev_;                         /* the connect,data event */
     uint32_t retry_seq_;                    /* retry seq */
+    time_t last_send_ts_;                   /* timestamp for timeout check */
 } t2u_session;
 
 typedef struct t2u_rule_
@@ -169,6 +170,12 @@ typedef struct t2u_rule_
     rbtree *sessions_;              /* sub sessions */
     rbtree *connecting_sessions_;   /* sessions not in establish */
     struct sockaddr_in conn_addr_;  /* address for connect if server mode */
+
+    unsigned long utimeout_;        /* timeout for message */
+    unsigned long uretries_;        /* retries for message */
+    unsigned long udp_slide_window_;/* slide window for udp packets */
+    unsigned long session_timeout_; /* session timeout in seconds */
+
 } t2u_rule;
 
 typedef struct t2u_context_
@@ -181,6 +188,7 @@ typedef struct t2u_context_
     unsigned long utimeout_;        /* timeout for message */
     unsigned long uretries_;        /* retries for message */
     unsigned long udp_slide_window_;/* slide window for udp packets */
+    unsigned long session_timeout_; /* session timeout in seconds */
 
     int debug_bandwidth_;           /* simulate bandwidth in bit/second */
     int debug_latency_;

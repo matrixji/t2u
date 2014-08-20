@@ -146,6 +146,17 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
             free(buff);
         }
         break;
+    case close_request:
+    {
+        t2u_session *session = find_session_in_context(context, mdata->handle_, 1);
+        if (session)
+        {
+            LOG_(1, "close session:%p, as peer already closed.", session);
+            t2u_delete_connected_session(session, 1);
+        }
+        free(buff);
+    }
+        break;
     default:
         {
             /* unknown packet */
@@ -189,6 +200,7 @@ t2u_context * t2u_add_context(t2u_runner *runner, sock_t sock)
     context->utimeout_ = 500;
     context->uretries_ = 3;
     context->udp_slide_window_ = 16;
+    context->session_timeout_ = 900;
     context->runner_ = runner;
 
     cdata.func_ = add_context_cb_;
@@ -243,8 +255,13 @@ void t2u_delete_context(t2u_context *context)
     return;
 }
 
-void t2u_send_message_data(t2u_context *context, char *data, size_t size)
+void t2u_send_message_data(t2u_context *context, char *data, size_t size, t2u_session * session)
 {
+    if (session)
+    {
+        session->last_send_ts_ = time(NULL);
+    }
+
 #if 1
     send(context->sock_, data, size, 0);
 #else
