@@ -16,21 +16,31 @@
 #include "t2u_internal.h"
 
 
-static int compare_uint32_ptr(void *a, void *b)
+static int compare_uint64_ptr(void *a, void *b)
 {
-    uint32_t *sa = (uint32_t *)a;
-    uint32_t *sb = (uint32_t *)b;
+    uint64_t *sa = (uint64_t *)a;
+    uint64_t *sb = (uint64_t *)b;
 
-    return ((*sa) - (*sb));
+    if (*sa > *sb)
+    {
+        return 1;
+    }
+    
+    if (*sa < *sb)
+    {
+        return -1;
+    }
+
+    return 0;
 }
 
 void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
 {
-    uint32_t pair_handle = mdata->handle_;
+    uint64_t handle = mdata->handle_;
     t2u_session *session = NULL;
     t2u_session *oldsession = NULL;
 
-    oldsession = (t2u_session *)rbtree_lookup(rule->sessions_, &pair_handle);
+    oldsession = (t2u_session *)rbtree_lookup(rule->sessions_, &handle);
     if (oldsession)
     {
         LOG_(2, "delete old session:%p", oldsession);
@@ -49,7 +59,7 @@ void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
     evutil_make_socket_nonblocking(s);
 
     /* new session */
-    session = t2u_add_connecting_session(rule, s, pair_handle);
+    session = t2u_add_connecting_session(rule, s, handle);
     assert(NULL != session);
 }
 
@@ -186,8 +196,8 @@ t2u_rule *t2u_add_rule(t2u_context *context, forward_mode mode, const char *serv
 #endif
 
     rule->context_ = context;
-    rule->sessions_ = rbtree_init(compare_uint32_ptr);
-    rule->connecting_sessions_ = rbtree_init(compare_uint32_ptr); 
+    rule->sessions_ = rbtree_init(compare_uint64_ptr);
+    rule->connecting_sessions_ = rbtree_init(compare_uint64_ptr); 
 
     cdata.func_ = add_rule_cb_;
     cdata.arg_ = rule;

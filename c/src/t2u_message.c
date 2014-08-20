@@ -43,7 +43,7 @@ t2u_message *t2u_add_request_message(t2u_session *session, char *payload, int pa
 
     message->len_ = sizeof(t2u_message_data) + payload_len;
     message->data_ = (t2u_message_data *)malloc(message->len_);
-    message->data_->handle_ = htonl(session->pair_handle_);
+    message->data_->handle_ = hton64(session->handle_);
     message->data_->magic_ = htonl(T2U_MESS_MAGIC);
     message->data_->oper_ = htons(data_request);
     memcpy(message->data_->payload, payload, payload_len);

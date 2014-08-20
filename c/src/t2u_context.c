@@ -36,7 +36,7 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
     mdata->magic_ = ntohl(mdata->magic_);
     mdata->version_ = ntohs(mdata->version_);
     mdata->oper_ = ntohs(mdata->oper_);
-    mdata->handle_ = ntohl(mdata->handle_);
+    mdata->handle_ = ntoh64(mdata->handle_);
     mdata->seq_ = ntohl(mdata->seq_);
 
     if (((int)recv_bytes < (int)sizeof(t2u_message_data)) ||
@@ -81,7 +81,7 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
             }
             else
             {
-                LOG_(2, "no session match the handle: %d", mdata->handle_);
+                LOG_(2, "no session match the handle: %llu", mdata->handle_);
             }
             free(buff);
         }
@@ -95,7 +95,7 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
             }
             else
             {
-                LOG_(2, "no session match the handle: %d", mdata->handle_);
+                LOG_(2, "no session match the handle: %llu", mdata->handle_);
             }
             free(buff);
         }    
@@ -118,7 +118,7 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
             }
             else
             {
-                LOG_(2, "no session match the handle: %d", mdata->handle_);
+                LOG_(2, "no session match the handle: %llu", mdata->handle_);
             }
             free(buff);
         }
@@ -141,7 +141,7 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
             }
             else
             {
-                LOG_(2, "no session match the handle: %d", mdata->handle_);
+                LOG_(2, "no session match the handle: %llu", mdata->handle_);
             }
             free(buff);
         }

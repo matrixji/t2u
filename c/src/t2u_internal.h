@@ -27,6 +27,8 @@ typedef __int16 int16_t;
 typedef unsigned __int16 uint16_t;
 #endif
 
+typedef int socklen_t;
+
 #endif /* _MSC_VER */
 
 
@@ -120,7 +122,7 @@ typedef struct t2u_message_data_
     uint32_t magic_;            /* magic number, see T2U_MESS_MAGIC */
     uint16_t version_;          /* version, current 0x0001 */
     uint16_t oper_;             /* operation code, see t2u_mess_oper */
-    uint32_t handle_;           /* handle for mapping session */
+    uint64_t handle_;           /* handle for mapping session */
     uint32_t seq_;              /* handle based seq */
     char payload[0];            /* payload */
 } t2u_message_data;
@@ -144,8 +146,7 @@ typedef struct t2u_session_
 {
     struct t2u_rule_ *rule_;                /* parent rule */
     sock_t sock_;                           /* with the socket */
-    uint32_t handle_;                       /* handle */
-    uint32_t pair_handle_;                  /* remote handle */
+    uint64_t handle_;                       /* handle */
     int status_;                            /* 0 for non, 1 for connecting, 2 for establish, 3 for closing */
     uint32_t send_buffer_count_;
     uint32_t send_seq_;                     /* send seq */
@@ -213,6 +214,14 @@ typedef struct control_data_
     void *arg_;
     // int error_;     /* callback error code */
 } control_data;
+
+#if defined(__x86_64__) || defined(_WIN64)
+#define ntoh64(x) ntohl(x)
+#define hton64(x) htonl(x)
+#else
+#define ntoh64(x) (((uint64_t)ntohl((x)&0xffffffff) << 32) | ((uint64_t)ntohl((x)>>32)))
+#define hton64(x) (((uint64_t)htonl((x)&0xffffffff) << 32) | ((uint64_t)htonl((x)>>32)))
+#endif
 
 
 #include "t2u_runner.h"

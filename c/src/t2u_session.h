@@ -2,7 +2,7 @@
 #define __t2u_session_h__
 
 /* new session while connecting */
-t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pair_handle);
+t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t handle);
 
 /* delete unestablished session */
 void t2u_delete_connecting_session(t2u_session *session);
@@ -27,8 +27,8 @@ void t2u_session_process_tcp(evutil_socket_t sock, short events, void *arg);
 
 /*
  * find the session in context using handle.
- * is ispair = 1, find in established sessions, else in connecting sessions.
+ * is connected = 1, find in established sessions, else in connecting sessions.
  */
-t2u_session *find_session_in_context(t2u_context *context, uint32_t handle, int ispair);
+t2u_session *find_session_in_context(t2u_context *context, uint64_t handle, int connected);
 
 #endif /* __t2u_session_h__ */

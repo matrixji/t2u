@@ -28,7 +28,17 @@ static int compare_uint32_ptr(void *a, void *b)
     uint32_t *sa = (uint32_t *)a;
     uint32_t *sb = (uint32_t *)b;
 
-    return ((*sa) - (*sb));
+    if (*sa > *sb)
+    {
+        return 1;
+    }
+
+    if (*sa < *sb)
+    {
+        return -1;
+    }
+
+    return 0;
 }
 
 
@@ -109,13 +119,12 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
     t2u_context *context = rule->context_;
     t2u_runner *runner = context->runner_;
 
-    uint32_t pair_handle = *((uint32_t *)(void *)mdata->payload);
-    pair_handle = ntohl(pair_handle);
+    uint32_t error = *((uint32_t *)(void *)mdata->payload);
+    error = ntohl(error);
 
-    if (pair_handle > 0)
+    if (error == 0)
     {
         session->status_ = 2;
-        session->pair_handle_ = pair_handle;
 
         // clear events
         event_free(session->ev_->event_);
@@ -132,12 +141,12 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         event_add(session->ev_->event_, NULL);
 
-		LOG_(1, "connect for session: %p with handle: %lu success. sock: %d", session, (unsigned long)session->handle_, session->sock_);
+		LOG_(1, "connect for session: %p with handle: %llu success. sock: %d", session, session->handle_, session->sock_);
 
     }
     else
     {
-        LOG_(2, "connect for session: %p with handle: %lu failed.", session, (unsigned long)session->handle_);
+        LOG_(2, "connect for session: %p with handle: %llu failed.", session, session->handle_);
         t2u_delete_connecting_session(session);
     }
 }
@@ -156,7 +165,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
     if ((seq_diff > context->udp_slide_window_) || (seq_diff <= 1))
     {
         mdata_resp = (t2u_message_data *)malloc(sizeof(t2u_message_data) + sizeof(int));
-        mdata_resp->handle_ = htonl(session->pair_handle_);
+        mdata_resp->handle_ = hton64(session->handle_);
         mdata_resp->magic_ = htonl(T2U_MESS_MAGIC);
         mdata_resp->oper_ = htons(data_response);
         mdata_resp->seq_ = htonl(this_mdata->seq_);
@@ -274,7 +283,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
 
         // send retrans request
         t2u_message_data retrans_md; 
-        retrans_md.handle_ = htonl(session->pair_handle_);
+        retrans_md.handle_ = hton64(session->handle_);
         retrans_md.magic_ = htonl(T2U_MESS_MAGIC);
         retrans_md.oper_ = htons(retrans_request);
         retrans_md.version_ = htons(1);
@@ -303,24 +312,24 @@ static void session_connect_response_(t2u_session *session)
 {
     t2u_rule *rule = (t2u_rule *) session->rule_;
     t2u_message_data *mdata = (t2u_message_data *) malloc(sizeof(t2u_message_data) + sizeof(uint32_t));
-    uint32_t *phandle;
+    uint32_t *error;
 
     mdata->magic_ = htonl(T2U_MESS_MAGIC);
     mdata->version_ = htons(0x0001);
     mdata->oper_ = htons(connect_response);
-    mdata->handle_ = htonl(session->pair_handle_);
+    mdata->handle_ = hton64(session->handle_);
 
     session->send_seq_ = 0; /* always using 0 as start seq */
     mdata->seq_ = htonl(session->send_seq_);
-    phandle = (void *)mdata->payload;
+    error = (void *)mdata->payload;
 
     if (session->status_ == 2)
     {
-        *phandle = htonl(session->handle_);
+        *error = 0;
     }
     else
     {
-        *phandle = htonl(0);
+        *error = htonl(1);
     }
 
     t2u_send_message_data(rule->context_, (char *)mdata, sizeof(t2u_message_data) + sizeof(uint32_t));
@@ -342,7 +351,7 @@ static void session_connect_(t2u_session *session)
         mdata->magic_ = htonl(T2U_MESS_MAGIC);
         mdata->version_ = htons(0x0001);
         mdata->oper_ = htons(connect_request);
-        mdata->handle_ = htonl(session->handle_);
+        mdata->handle_ = hton64(session->handle_);
 
         session->send_seq_ = 0; /* always using 0 as start seq */
         mdata->seq_ = htonl(session->send_seq_);
@@ -412,12 +421,12 @@ static void session_connect_success_cb_(evutil_socket_t sock, short events, void
 
         event_add(ev->event_, NULL);
 
-		LOG_(1, "connect for session: %p with handle: %lu success. sock: %d", session, (unsigned long)session->handle_, session->sock_);
+		LOG_(1, "connect for session: %p with handle: %llu success. sock: %d", session, session->handle_, session->sock_);
 
     }
     else
     {
-        LOG_(2, "connect for session: %p with handle: %lu failed.", session, (unsigned long)session->handle_);
+        LOG_(2, "connect for session: %p with handle: %llu failed.", session, session->handle_);
         t2u_delete_connecting_session(session);
     }
 }
@@ -458,18 +467,31 @@ static void session_connect_timeout_cb_(evutil_socket_t sock, short events, void
 }
 
 
-t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pair_handle)
+t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t handle)
 {
     struct timeval t;
     t2u_context *context = rule->context_;
     t2u_runner *runner = context->runner_;
-    
-    t2u_session *session = (t2u_session *) malloc(sizeof(t2u_session));
+
+    t2u_session *session = (t2u_session *)malloc(sizeof(t2u_session));
     assert(NULL != session);
     memset(session, 0, sizeof(t2u_session));
 
-    session->handle_ = (uint32_t)sock;
-    session->pair_handle_ = pair_handle;
+    struct timeval tv;
+    evutil_gettimeofday(&tv, NULL);
+    
+    struct sockaddr_in selfaddr;
+    socklen_t namelen = sizeof(selfaddr);
+    getsockname(context->sock_, (struct sockaddr*)&selfaddr, &namelen);
+
+    if (handle == 0)
+    {
+        session->handle_ = ((uint64_t)tv.tv_sec & 0x00ff) | ((uint64_t)selfaddr.sin_addr.s_addr & 0xff00) | ((uint64_t)(sock & 0x00ff) << 32) | ((uint64_t)(tv.tv_usec & 0x00ff) << 48);
+    }
+    else
+    {
+        session->handle_ = handle;
+    }
     session->rule_ = rule;
     session->sock_ = sock;
 
@@ -478,7 +500,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pa
     session->send_mess_ = rbtree_init(compare_uint32_ptr);
     session->recv_mess_ = rbtree_init(compare_uint32_ptr);
 
-    LOG_(1, "create new session %p(%lu)", session, (unsigned long)session->handle_);
+    LOG_(1, "create new session %p handle: %llu, sock :%d", session, session->handle_, sock);
 
     session->ev_ = t2u_event_new();
     session->ev_->runner_ = runner;
@@ -497,7 +519,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint32_t pa
         /* extra event for server mdoe */
         session->ev_->extra_event_ = event_new(runner->base_, sock, EV_WRITE, session_connect_success_cb_, session->ev_);
         event_add(session->ev_->extra_event_, NULL);
-		LOG_(1, "add extra event for connecting session: %p sock: %d", session, sock);
+		LOG_(1, "add extra event for connecting session: %p handle: %llu sock: %d", session, session->handle_, sock);
     }
 
     /* add session to rule, using self handle as key */
@@ -595,45 +617,45 @@ void t2u_delete_connected_session_later(t2u_session *session)
 }
 
 
-static t2u_session *find_session_in_rule(t2u_rule *rule, uint32_t handle, int ispair)
+static t2u_session *find_session_in_rule(t2u_rule *rule, uint64_t handle, int connected)
 {
     void *n = NULL;
-    if (ispair)
+    if (connected)
     {
-        /* sessions_ key using pair_handle */
+        /* sessions_ */
         n = rbtree_lookup(rule->sessions_, &handle);
     }
     else
     {
-        /* connecting_sessions_ using self handle */
+        /* connecting_sessions_  */
         n = rbtree_lookup(rule->connecting_sessions_, &handle);
     }
     return (t2u_session *)n;
 }
 
-static t2u_session *find_session_in_context_walk(rbtree_node *node, uint32_t handle, int ispair)
+static t2u_session *find_session_in_context_walk(rbtree_node *node, uint64_t handle, int connected)
 {
     t2u_session *session = NULL;
     if (node)
     {
-        session = find_session_in_context_walk(node->left, handle, ispair);
+        session = find_session_in_context_walk(node->left, handle, connected);
         if (!session)
         {
             t2u_rule *rule = node->data;
-            session = find_session_in_rule(rule, handle, ispair);
+            session = find_session_in_rule(rule, handle, connected);
 
             if (!session)
             {
-                session = find_session_in_context_walk(node->right, handle, ispair);
+                session = find_session_in_context_walk(node->right, handle, connected);
             }
         }
     }
     return session;
 }
 
-t2u_session *find_session_in_context(t2u_context *context, uint32_t handle, int ispair)
+t2u_session *find_session_in_context(t2u_context *context, uint64_t handle, int connected)
 {
-    return find_session_in_context_walk(context->rules_->root, handle, ispair);
+    return find_session_in_context_walk(context->rules_->root, handle, connected);
 }
 
 

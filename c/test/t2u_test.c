@@ -14,7 +14,6 @@
 #include <netdb.h>
 #else
 #include <Windows.h>
-typedef int socklen_t;
 #endif
 
 #include "t2u.h"
