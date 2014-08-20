@@ -113,9 +113,7 @@ static void client_recv_cb_(evutil_socket_t sock, short events, void *arg)
 static void client_time_cb_(evutil_socket_t sock, short events, void *arg)
 {
     client_context *cc = (client_context *)arg;
-    static int tt = 1;
-    tt*=2;
-    struct timeval t = { tt, 0 };
+    struct timeval t = { 0, 100000 };
     int r = 0;
     int i = 0;
 
@@ -369,9 +367,6 @@ int main()
 
     test_context *tc_server = setup_t2u(1);
     test_context *tc_client = setup_t2u(0);
-
-    set_context_option(tc_server->context, CTX_SESSION_TIMEOUT, 10);
-
 
     server_context *sc = setup_server();
     client_context *cc = setup_client();
