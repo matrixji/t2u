@@ -127,7 +127,7 @@ typedef struct t2u_message_data_
     char payload[0];            /* payload */
 } t2u_message_data;
 
-#define T2U_PAYLOAD_MAX (10240)
+#define T2U_PAYLOAD_MAX (1400)
 #define T2U_MESS_BUFFER_MAX (T2U_PAYLOAD_MAX + sizeof(t2u_message_data))
 #define T2U_MESS_MAGIC (0x5432552E) /* "T2U." */
 
