@@ -167,6 +167,7 @@ t2u_runner * t2u_runner_new()
 
     /* control message */
     runner->sock_[0] = socket(AF_INET, SOCK_DGRAM, 0);
+	LOG_(3, "creat socket runner->sock_[0]: %d", (runner->sock_[0]));
     assert(runner->sock_[0] > 0);
 
     for (listen_port = CONTROL_PORT_START; listen_port < CONTROL_PORT_END; listen_port ++)
@@ -177,6 +178,7 @@ t2u_runner * t2u_runner_new()
 
         if (bind(runner->sock_[0], (struct sockaddr *)&addr_c, sizeof(addr_c)) == -1)
         {
+			// will close at t2u_delete_runner
 #if defined _MSC_VER
             LOG_(0, "socket bind failed. %d\n", WSAGetLastError());
 #else
@@ -193,6 +195,7 @@ t2u_runner * t2u_runner_new()
 
     /* now connect local control server */
     runner->sock_[1] = socket(AF_INET, SOCK_DGRAM, 0);
+    LOG_(3, "creat socket runner->sock_[1]: %d", (runner->sock_[1]));  
     assert(runner->sock_[1] > 0);
     
     ret = connect(runner->sock_[1], (struct sockaddr *)&addr_c, sizeof(addr_c));
@@ -272,6 +275,8 @@ void t2u_delete_runner(t2u_runner *runner)
     /* cleanup */
     closesocket(runner->sock_[0]);
     closesocket(runner->sock_[1]);  
+    LOG_(3, "closesocket runner->sock_[0]: %d", (runner->sock_[0]));
+    LOG_(3, "closesocket runner->sock_[1]: %d", (runner->sock_[1]));
 
     LOG_(0, "delete the runner: %p", (void *)runner);
 

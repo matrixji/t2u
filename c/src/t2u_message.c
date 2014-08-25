@@ -119,14 +119,20 @@ void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *md
     t2u_session *session = message->session_;
 
     int value = ntohl(*((int *)mdata->payload));
-    if (value == 0)
+	int valid_length = message->len_ - sizeof(t2u_message_data);
+	if (value == valid_length)
     {
         /* success, remove same seq from send_mess_ */
         t2u_delete_request_message(message);
     }
-    else if (value == 2)
+    else if (value >= 0)
     {
         /* block, try later */
+		if (value > 0)
+		{
+			message->len_ -= value;
+			memcpy(message->data_->payload, message->data_->payload + value, sizeof(valid_length - value));
+		}
     }
     else
     {

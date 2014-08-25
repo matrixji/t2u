@@ -233,7 +233,7 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
 #endif
                 {
                     // error, response it's error.
-                    *value = htonl(1);
+                    *value = htonl(-1);
                     t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
 
                     LOG_(2, "send on session: %p failed. error: %d", session, last_error);
@@ -241,21 +241,22 @@ void t2u_session_handle_data_request(t2u_session *session, t2u_message_data *mda
                     free(mdata_resp);
                     return;
                 }
-                else if (r > 0)
-                {
-                    assert(r == mdata_len - sizeof(t2u_message_data));
-                    // success.
-                    *value = htonl(0);
-                    session->recv_seq_++;
-                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
-                }
                 else
                 {
-                    // block
-                    *value = htonl(2);
-                    t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data) + sizeof(int), session);
-                    free(mdata_resp);
-                    return;
+					// block or success
+					*value = htonl(r);
+					t2u_send_message_data(context, (char *)mdata_resp, sizeof(t2u_message_data)+sizeof(int), session);
+					
+					if (r != mdata_len - sizeof(t2u_message_data))
+					{
+						LOG_(2, "Application performance issue. send on socket blocked, %d != %d", r, mdata_len - sizeof(t2u_message_data));
+						free(mdata_resp);
+						return;
+					}
+					else
+					{
+						session->recv_seq_++;
+					}
                 }
                 
                 t2u_message *this_m  = rbtree_lookup(session->recv_mess_, &next_seq);
@@ -404,8 +405,7 @@ static void session_connect_(t2u_session *session)
 #endif
         {
             LOG_(3, "connect socket failed");
-            closesocket(session->sock_);
-            session->sock_ = 0;
+			t2u_delete_connecting_session(session);
             return;
         }      
     }
@@ -510,8 +510,11 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t ha
     memset(session, 0, sizeof(t2u_session));
 
     struct timeval tv;
-    evutil_gettimeofday(&tv, NULL);
-    
+#ifdef WIN32
+	evutil_gettimeofday(&tv, NULL);
+#else
+	gettimeofday(&tv, NULL);
+#endif
     struct sockaddr_in selfaddr;
     socklen_t namelen = sizeof(selfaddr);
     getsockname(context->sock_, (struct sockaddr*)&selfaddr, &namelen);
@@ -575,13 +578,13 @@ void t2u_delete_connecting_session(t2u_session *session)
     if (session->sock_)
     {
         closesocket(session->sock_);
-        session->sock_ = 0;
     }
 
     /* delete from rule */
     rbtree_remove(session->rule_->connecting_sessions_, &session->handle_);
 
     /* free */
+	session->sock_ = 0;
     free(session->send_mess_);
     free(session->recv_mess_);
     free(session);
@@ -608,7 +611,6 @@ void t2u_delete_connected_session(t2u_session *session, int sync_from_pair)
     if (session->sock_)
     {
         closesocket(session->sock_);
-        session->sock_ = 0;
     }
 
     /* clear recv queue */
@@ -640,6 +642,7 @@ void t2u_delete_connected_session(t2u_session *session, int sync_from_pair)
     LOG_(1, "delete connected session: %p, sock: %d", session, session->sock_);
     
     /* free */
+	session->sock_ = 0;
     free(session->send_mess_);
     free(session->recv_mess_);
     free(session);
