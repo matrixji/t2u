@@ -139,9 +139,14 @@ void t2u_message_handle_data_response(t2u_message *message, t2u_message_data *md
         /* error */
         LOG_(2, "data response with error for session: %p, value: %d", session, value);
         t2u_delete_connected_session(session, 0);
+        session = NULL;
     }
 
-	t2u_try_delete_connected_session(session);
+    if (session)
+    {
+        t2u_try_delete_connected_session(session);
+    }
+
 }
 
 void t2u_message_handle_retrans_request(t2u_message *message, t2u_message_data *mdata)
