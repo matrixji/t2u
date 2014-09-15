@@ -157,7 +157,8 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         // move connecting -> connected
         rbtree_remove(rule->connecting_sessions_, &session->handle_);
-        rbtree_insert(rule->sessions_, &session->handle_, session);
+        rbtree_insert(rule->sessions_, &mdata->handle_, session);
+        session->handle_ = mdata->handle_;
 
         // binding new events
         session->ev_->event_ = event_new(runner->base_, session->sock_, 
@@ -508,25 +509,27 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t ha
     t2u_session *session = (t2u_session *)malloc(sizeof(t2u_session));
     assert(NULL != session);
     memset(session, 0, sizeof(t2u_session));
+    
+    static uint32_t handle_seq_ = 0;
 
-    struct timeval tv;
-#ifdef WIN32
-	evutil_gettimeofday(&tv, NULL);
-#else
-	gettimeofday(&tv, NULL);
-#endif
-    struct sockaddr_in selfaddr;
-    socklen_t namelen = sizeof(selfaddr);
-    getsockname(context->sock_, (struct sockaddr*)&selfaddr, &namelen);
+    ++handle_seq_;
+    if (handle_seq_ == 0)
+    {
+        ++handle_seq_;
+    }
 
     if (handle == 0)
     {
-        session->handle_ = ((uint64_t)tv.tv_sec & 0x00ff) | ((uint64_t)selfaddr.sin_addr.s_addr & 0xff00) | ((uint64_t)(sock & 0x00ff) << 32) | ((uint64_t)(tv.tv_usec & 0x00ff) << 48);
+        session->handle_ = (uint64_t)(handle_seq_);
     }
     else
     {
-        session->handle_ = handle;
+        // handle is from client, add server part.
+        session->handle_ = handle + ((uint64_t)handle_seq_ << 32);
     }
+    handle = session->handle_;
+
+
     session->rule_ = rule;
     session->sock_ = sock;
 
