@@ -157,8 +157,9 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         // move connecting -> connected
         rbtree_remove(rule->connecting_sessions_, &session->handle_);
-        rbtree_insert(rule->sessions_, &mdata->handle_, session);
         session->handle_ = mdata->handle_;
+        rbtree_insert(rule->sessions_, &session->handle_, session);
+
 
         // binding new events
         session->ev_->event_ = event_new(runner->base_, session->sock_, 
