@@ -168,8 +168,8 @@ void t2u_session_handle_connect_response(t2u_session *session, t2u_message_data 
 
         // move connecting -> connected
         rbtree_remove(rule->connecting_sessions_, &session->handle_);
-        session->handle_ = mdata->handle_;       
-		rbtree_insert(rule->sessions_, &session->handle_, session);
+        session->handle_ = mdata->handle_;
+        rbtree_insert(rule->sessions_, &session->handle_, session);
 
 
         // binding new events
@@ -521,7 +521,7 @@ t2u_session *t2u_add_connecting_session(t2u_rule *rule, sock_t sock, uint64_t ha
     t2u_session *session = (t2u_session *)malloc(sizeof(t2u_session));
     assert(NULL != session);
     memset(session, 0, sizeof(t2u_session));
-    
+
     static uint32_t handle_seq_ = 0;
 
     ++handle_seq_;
