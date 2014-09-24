@@ -47,6 +47,13 @@ void t2u_rule_handle_connect_request(t2u_rule *rule, t2u_message_data *mdata)
         t2u_delete_connected_session(oldsession, 0);
     }
 
+    oldsession = (t2u_session *)rbtree_lookup(rule->connecting_sessions_, &handle);
+    if (oldsession)
+    {
+        LOG_(2, "delete old session:%p", oldsession);
+        t2u_delete_connecting_session(oldsession);
+    }
+
     /* connect to peer */
     sock_t s = socket(AF_INET, SOCK_STREAM, 0);
     if (-1 == s)

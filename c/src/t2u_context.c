@@ -74,14 +74,15 @@ static void process_udp_cb_(evutil_socket_t sock, short events, void *arg)
     case connect_response:
         {
             /* find with self handle */
-            t2u_session *session = find_session_in_context(context, mdata->handle_, 0);
+            uint64_t compare_handle = mdata->handle_ & 0x00000000ffffffff;
+            t2u_session *session = find_session_in_context(context, compare_handle, 0);
             if (session)
             {
                 t2u_session_handle_connect_response(session, mdata);
             }
             else
             {
-                LOG_(2, "no session match the handle: %llu", mdata->handle_);
+                LOG_(2, "no session match the handle: %llu -> %llu", mdata->handle_, compare_handle);
             }
             free(buff);
         }

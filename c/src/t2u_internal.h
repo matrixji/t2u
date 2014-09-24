@@ -29,14 +29,14 @@ typedef unsigned __int16 uint16_t;
 
 typedef int socklen_t;
 
-#define PACK(__Declaration__) __pragma(pack(push, 4)) __Declaration__ __pragma(pack(pop))
+#define PACK(__Declaration__) __pragma(pack(push, 4)) __Declaration__ __pragma(pack(pop));
 
 #endif /* _MSC_VER */
 
 
 #if defined __GNUC__
 #define closesocket close
-#define PACK(__Declaration__) __Declaration__ __attribute__((__packed__))
+#define PACK(__Declaration__) __Declaration__ __attribute__((__packed__));
 #endif
 
 /* log helpers */
@@ -121,7 +121,7 @@ enum t2u_mess_oper
 
 /* t2u udp message */
 PACK(
-typedef struct t2u_message_data_
+struct t2u_message_data_
 {
     uint32_t magic_;            /* magic number, see T2U_MESS_MAGIC */
     uint16_t version_;          /* version, current 0x0001 */
@@ -129,8 +129,9 @@ typedef struct t2u_message_data_
     uint64_t handle_;           /* handle for mapping session */
     uint32_t seq_;              /* handle based seq */
     char payload[0];            /* payload */
-} t2u_message_data;
+}
 )
+typedef struct t2u_message_data_ t2u_message_data;
 
 #define T2U_PAYLOAD_MAX (1400)
 #define T2U_MESS_BUFFER_MAX (T2U_PAYLOAD_MAX + sizeof(t2u_message_data))

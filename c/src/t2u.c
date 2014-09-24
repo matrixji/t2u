@@ -50,6 +50,13 @@ static int __g_runner_mutex_init_ = 0;
  */
 forward_context create_forward(sock_t s)
 {
+	/* check */
+	if (sizeof(t2u_message_data) != 20)
+	{
+		LOG_(4, "Compiler Error: sizeof(t2u_message_data) != 20");
+		return NULL;
+	}
+
 	if (!__g_runner_mutex_init_)
 	{
 		t2u_mutex_init(&__g_runner_mutex_);
