@@ -196,6 +196,8 @@ t2u_context * t2u_add_context(t2u_runner *runner, sock_t sock)
     assert(context != NULL);
     memset(context, 0, sizeof(t2u_context));
 
+    evutil_make_socket_nonblocking(sock);
+
     context->rules_ = rbtree_init(compare_name);
     context->sock_ = sock;
     context->utimeout_ = 500;
